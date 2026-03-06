@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Scribble - Instant Shareable Pastes</title>
+    <meta name="description" content="Scribble is a fast, premium, instant pastebin to share text securely with live sync." />
+    
+    <!-- Open Graph / Social -->
+    <meta property="og:title" content="Scribble - Instant Shareable Pastes" />
+    <meta property="og:description" content="Create shareable pastes with optional PIN protection and real-time sync." />
+    <meta property="og:image" content="https://modern-pastebin.vercel.app/og-image.png" />
+    <meta property="og:url" content="https://modern-pastebin.vercel.app/" />
+    <meta property="og:type" content="website" />
+    
+    <!-- Twitter -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Scribble - Instant Shareable Pastes" />
+    <meta name="twitter:description" content="Create shareable pastes with optional PIN protection and real-time sync." />
+    <meta name="twitter:image" content="https://modern-pastebin.vercel.app/og-image.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet" href="style.css" />
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>%E2%9C%A6</text></svg>">
+  </head>
+  <body>
+
+    <div id="toast" class="toast">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+      <span id="toastText"></span>
+    </div>
+
+    <!-- ========== CREATE ========== -->
+    <div id="createView" class="view">
+      <div class="page">
+        <nav>
+          <a href="/" class="brand"><span class="brand-mark" aria-hidden="true">&#10022;</span> Scribble</a>
+          <div class="nav-right">
+            <span class="chip">Instant</span>
+            <span class="chip">PIN Lock</span>
+            <span class="chip">Live Sync</span>
+          </div>
+        </nav>
+
+        <div id="composeSection">
+          <div class="panel" id="composePanel">
+            <textarea id="initialContent" class="compose-textarea" placeholder="Type or paste something..." autofocus oninput="updateCount()"></textarea>
+          </div>
+
+          <div class="action-bar" style="margin-top:10px;">
+            <div class="action-bar-left">
+              <span class="char-badge" id="charCount">0</span>
+              <button type="button" class="pin-btn" onclick="togglePin()" id="pinBtn">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                <span id="pinBtnText">PIN</span>
+              </button>
+              <div class="pin-field" id="pinField">
+                <input type="text" id="pinInput" placeholder="PIN" maxlength="8" autocomplete="off" />
+              </div>
+            </div>
+            <button id="createBtn" class="cta-btn" onclick="createPaste()">
+              <span class="btn-label">Create</span>
+              <span class="spinner"></span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Success -->
+        <div id="resultPanel" class="result-panel panel" style="display:none;">
+          <div class="result-header">
+            <span class="result-mark" aria-hidden="true">&#10022;</span>
+            <div>
+              <h3>Paste live</h3>
+              <p>Share the link or open the editor.</p>
+            </div>
+          </div>
+
+          <div class="link-group">
+            <div class="link-row" id="shareRow" onclick="copyRow('shareUrl','shareRow')">
+              <span class="link-label">Share</span>
+              <span class="badge-sm badge-viewer">viewer</span>
+              <code class="link-url" id="shareUrl"></code>
+              <button class="copy-btn" title="Copy">
+                <svg class="copy-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                <svg class="check-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+              </button>
+            </div>
+            <div class="link-row admin" id="adminRow" onclick="copyRow('adminUrl','adminRow')">
+              <span class="link-label">Editor</span>
+              <span class="badge-sm badge-admin">admin</span>
+              <code class="link-url" id="adminUrl"></code>
+              <button class="copy-btn" title="Copy">
+                <svg class="copy-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                <svg class="check-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+              </button>
+            </div>
+          </div>
+
+          <div class="result-actions">
+            <button class="cta-btn" onclick="goToEditor()" style="flex:1;">Open Editor</button>
+            <button class="ghost-btn" onclick="resetCreate()">New paste</button>
+          </div>
+        </div>
+
+        <footer class="foot"><p>Pastes expire in 24h<span class="foot-sep"></span><a href="/">Scribble</a></p></footer>
+      </div>
+    </div>
+
+    <!-- ========== EDITOR ========== -->
+    <div id="editorView" class="view" style="display:none;">
+      <div class="page">
+        <nav>
+          <div style="display:flex;align-items:center;gap:10px;">
+            <a href="/" class="brand"><span class="brand-mark" aria-hidden="true">&#10022;</span> Scribble</a>
+            <span class="id-badge" id="pasteIdBadge"></span>
+          </div>
+          <div class="status saved" id="statusBadge">
+            <div class="status-dot"></div>
+            <span id="statusText">Saved</span>
+          </div>
+        </nav>
+
+        <div class="editor-bar">
+          <button class="tool-btn" onclick="copyShareLink()" id="shareBtn">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+            <span>Share</span>
+          </button>
+          <div class="toolbar-spacer"></div>
+          <span class="char-label" id="editorCharCount">0 chars</span>
+        </div>
+
+        <div class="panel editor-panel">
+          <textarea id="editor" placeholder="Start typing..."></textarea>
+        </div>
+
+        <footer class="foot"><p>Auto-saves as you type<span class="foot-sep"></span>Expires in 24h</p></footer>
+      </div>
+    </div>
+
+    <script>
+      let pasteId = null, adminToken = null, saveTimer = null, pinOpen = false;
+
+      // Toast
+      let tt;
+      function toast(m) {
+        const t = document.getElementById("toast");
+        document.getElementById("toastText").textContent = m;
+        t.classList.add("visible");
+        clearTimeout(tt);
+        tt = setTimeout(() => t.classList.remove("visible"), 2200);
+      }
+
+      // Count
+      function updateCount() {
+        document.getElementById("charCount").textContent = document.getElementById("initialContent").value.length.toLocaleString();
+      }
+      function updateEditorCount() {
+        document.getElementById("editorCharCount").textContent = document.getElementById("editor").value.length.toLocaleString() + " chars";
+      }
+
+      // PIN
+      function togglePin() {
+        pinOpen = !pinOpen;
+        document.getElementById("pinField").classList.toggle("open", pinOpen);
+        document.getElementById("pinBtn").classList.toggle("active", pinOpen);
+        if (pinOpen) document.getElementById("pinInput").focus();
+      }
+
+      // Init
+      (function() {
+        const p = new URLSearchParams(location.search);
+        if (p.get("paste") && p.get("token")) {
+          pasteId = p.get("paste"); adminToken = p.get("token");
+          document.getElementById("createView").style.display = "none";
+          document.getElementById("editorView").style.display = "";
+          document.getElementById("pasteIdBadge").textContent = pasteId;
+          loadContent();
+        }
+      })();
+
+      // Create
+      async function createPaste() {
+        const btn = document.getElementById("createBtn");
+        const content = document.getElementById("initialContent").value;
+        const pin = document.getElementById("pinInput").value.trim();
+        btn.classList.add("loading"); btn.disabled = true;
+        try {
+          const r = await fetch("/api/create", {
+            method: "POST", headers: {"Content-Type":"application/json"},
+            body: JSON.stringify({ content, pin: pin || null })
+          });
+          if (!r.ok) { toast((await r.json()).message || "Error"); btn.classList.remove("loading"); btn.disabled = false; return; }
+          const d = await r.json();
+          pasteId = d.pasteId; adminToken = d.adminToken;
+          const o = location.origin;
+          document.getElementById("shareUrl").textContent = `${o}/view?id=${d.pasteId}`;
+          document.getElementById("adminUrl").textContent = `${o}/?paste=${d.pasteId}&token=${d.adminToken}`;
+          document.getElementById("composeSection").style.display = "none";
+          document.getElementById("resultPanel").style.display = "";
+        } catch(e) { console.error(e); toast("Network error"); }
+        btn.classList.remove("loading"); btn.disabled = false;
+      }
+
+      function resetCreate() {
+        document.getElementById("resultPanel").style.display = "none";
+        document.getElementById("composeSection").style.display = "";
+        document.getElementById("initialContent").value = "";
+        document.getElementById("pinInput").value = "";
+        pinOpen = false;
+        document.getElementById("pinField").classList.remove("open");
+        document.getElementById("pinBtn").classList.remove("active");
+        updateCount(); pasteId = null; adminToken = null;
+        document.getElementById("initialContent").focus();
+      }
+
+      function goToEditor() { location.href = `/?paste=${pasteId}&token=${adminToken}`; }
+
+      // Editor
+      async function loadContent() {
+        try {
+          const r = await fetch(`/api/content?id=${pasteId}&token=${adminToken}`);
+          if (r.ok) { const d = await r.json(); document.getElementById("editor").value = d.content || ""; updateEditorCount(); }
+        } catch(e) { console.error(e); }
+      }
+
+      function setStatus(s) {
+        const b = document.getElementById("statusBadge"), t = document.getElementById("statusText");
+        if (!b) return;
+        b.className = `status ${s}`;
+        t.textContent = s === "saving" ? "Saving..." : s === "saved" ? "Saved" : "Error";
+      }
+
+      async function saveContent() {
+        setStatus("saving");
+        try {
+          const r = await fetch("/api/update", {
+            method: "POST", headers: {"Content-Type":"application/json"},
+            body: JSON.stringify({ content: document.getElementById("editor").value, pasteId, adminToken })
+          });
+          setStatus(r.ok ? "saved" : "error");
+        } catch(e) { setStatus("error"); }
+      }
+
+      document.getElementById("editor").addEventListener("input", () => {
+        setStatus("saving"); clearTimeout(saveTimer);
+        saveTimer = setTimeout(saveContent, 400);
+        updateEditorCount();
+      });
+
+      // Copy
+      function copyRow(codeId, rowId) {
+        navigator.clipboard.writeText(document.getElementById(codeId).textContent).then(() => {
+          const row = document.getElementById(rowId);
+          row.classList.add("copied"); setTimeout(() => row.classList.remove("copied"), 2000);
+          toast("Copied");
+        });
+      }
+
+      function copyShareLink() {
+        navigator.clipboard.writeText(`${location.origin}/view?id=${pasteId}`).then(() => {
+          const b = document.getElementById("shareBtn"), s = b.querySelector("span");
+          b.classList.add("copied"); s.textContent = "Copied!"; toast("Share link copied");
+          setTimeout(() => { b.classList.remove("copied"); s.textContent = "Share"; }, 1500);
+        });
+      }
+
+      // Ctrl+Enter
+      document.addEventListener("keydown", e => {
+        if ((e.ctrlKey || e.metaKey) && e.key === "Enter" && document.getElementById("createView").style.display !== "none") createPaste();
+      });
+    </script>
+  </body>
+</html>

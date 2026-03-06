@@ -1,0 +1,33 @@
+# Next.js / Vercel
+.vercel
+
+# Dependencies
+node_modules
+.pnp
+.pnp.*
+.pnpm-store
+
+# Environment variables (CRITICAL)
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env.*
+
+# Logs & Diagnostics
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+*.log
+
+# OS / Editor
+.DS_Store
+*.pem
+.idea/
+.vscode/
+
+# Coverage
+coverage/
+.nyc_output/
