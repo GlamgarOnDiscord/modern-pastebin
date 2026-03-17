@@ -656,3 +656,25 @@ pre {
   .action-bar { flex-wrap: wrap; }
   .cta-btn { width: 100%; justify-content: center; }
 }
+
+/* Comment Toggle */
+.comment-toggle { display: inline-flex; align-items: center; gap: 5px; padding: 7px 12px; border-radius: var(--r-s); background: var(--surface-1); border: 1px solid var(--border); cursor: pointer; transition: all 150ms var(--ease); user-select: none; }
+.comment-toggle:hover { background: var(--surface-2); border-color: var(--border-hover); }
+.comment-toggle input { display: none; }
+.comment-toggle-label { color: var(--text-2); font-size: 0.76rem; font-weight: 500; transition: color 150ms; }
+.comment-toggle input:checked + .comment-toggle-label { color: var(--accent); }
+.comment-toggle:has(input:checked) { border-color: rgba(16,185,129,0.2); background: var(--accent-subtle); }
+
+/* Comments Section */
+.comments-section { padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+.comments-header h3 { font-size: 0.9rem; font-weight: 600; color: var(--text-1); }
+.comments-list { display: flex; flex-direction: column; gap: 8px; max-height: 200px; overflow-y: auto; }
+.comment-item { display: flex; flex-direction: column; gap: 4px; padding: 8px 12px; background: rgba(255,255,255,0.02); border-radius: var(--r-s); border: 1px solid var(--border); }
+.comment-meta { display: flex; justify-content: space-between; font-size: 0.65rem; color: var(--text-3); }
+.comment-text { font-size: 0.8rem; color: var(--text-1); word-break: break-word; }
+.comments-input-area { display: flex; gap: 8px; margin-top: 4px; }
+.comments-input-area input { flex: 1; background: rgba(0,0,0,0.15); border: 1px solid var(--border); border-radius: var(--r-s); color: var(--text-1); padding: 8px 12px; font-size: 0.8rem; outline: none; }
+.comments-input-area input:focus { border-color: var(--accent); }
+
+/* Viewers Badge */
+.viewers-badge { display: inline-flex; align-items: center; gap: 4px; font-size: 0.72rem; font-weight: 500; color: var(--accent); background: var(--accent-subtle); padding: 4px 8px; border-radius: var(--r-pill); border: 1px solid rgba(16,185,129,0.2); animation: pulseGlow 2s infinite; }

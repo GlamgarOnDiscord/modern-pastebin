@@ -109,7 +109,7 @@ function serveStatic(res, filePath) {
 async function handleCreate(req, res) {
   if (req.method !== "POST") return sendJson(res, 405, { message: "Method Not Allowed" });
 
-  const { pin, content } = await parseBody(req);
+  const { pin, content, allowComments } = await parseBody(req);
 
   let pasteId;
   let attempts = 0;
@@ -132,6 +132,8 @@ async function handleCreate(req, res) {
   kv.set(`paste:${pasteId}:adminToken`, adminToken);
   kv.set(`paste:${pasteId}:viewerToken`, viewerToken);
   kv.set(`paste:${pasteId}:createdAt`, now);
+  kv.set(`paste:${pasteId}:allowComments`, String(allowComments === true || allowComments === "true"));
+  kv.set(`paste:${pasteId}:comments`, JSON.stringify([]));
 
   sendJson(res, 200, { pasteId, adminToken, viewerToken, hasPin: !!pin, createdAt: now });
 }
@@ -150,12 +152,12 @@ async function handleAuth(req, res) {
 
   if (!storedPin) {
     const viewerToken = kv.get(`paste:${pasteId}:viewerToken`);
-    return sendJson(res, 200, { message: "Success", token: viewerToken });
+    return sendJson(res, 200, { message: "Success", token: viewerToken, role: "viewer" });
   }
 
   if (pin === storedPin) {
     const viewerToken = kv.get(`paste:${pasteId}:viewerToken`);
-    return sendJson(res, 200, { message: "Success", token: viewerToken });
+    return sendJson(res, 200, { message: "Success", token: viewerToken, role: "viewer" });
   }
 
   sendJson(res, 401, { message: "Invalid PIN" });
@@ -183,8 +185,32 @@ function handleContent(req, res) {
     return sendJson(res, 401, { message: "Unauthorized" });
   }
 
+  if (token) {
+    kv.set(`paste:${id}:viewers:${token}`, Date.now());
+  }
+
+  let viewerCount = 0;
+  const now = Date.now();
+  for (const k of Object.keys(store)) {
+    if (k.startsWith(`paste:${id}:viewers:`)) {
+      if (now - store[k] > 10000) {
+        delete store[k];
+      } else {
+        viewerCount++;
+      }
+    }
+  }
+
+  const allowCommentsStr = kv.get(`paste:${id}:allowComments`);
+  const allowComments = allowCommentsStr === "true" || allowCommentsStr === true;
+  let comments = [];
+  if (allowComments) {
+    const rawComments = kv.get(`paste:${id}:comments`);
+    try { comments = rawComments ? JSON.parse(rawComments) : []; } catch(e) {}
+  }
+
   const content = kv.get(`paste:${id}:content`) || "";
-  sendJson(res, 200, { content });
+  sendJson(res, 200, { content, allowComments, comments, viewerCount });
 }
 
 async function handleUpdate(req, res) {
@@ -200,6 +226,35 @@ async function handleUpdate(req, res) {
 
   kv.set(`paste:${pasteId}:content`, content || "");
   sendJson(res, 200, { message: "Saved successfully" });
+}
+
+async function handleComment(req, res) {
+  if (req.method !== "POST") return sendJson(res, 405, { message: "Method Not Allowed" });
+
+  const { pasteId, token, text } = await parseBody(req);
+
+  if (!pasteId || !token || !text) return sendJson(res, 400, { message: "Missing data" });
+
+  const adminToken = kv.get(`paste:${pasteId}:adminToken`);
+  const viewerToken = kv.get(`paste:${pasteId}:viewerToken`);
+
+  let author = null;
+  if (token === adminToken) author = "admin";
+  else if (token === viewerToken) author = "viewer";
+  else return sendJson(res, 401, { message: "Unauthorized" });
+
+  const allowCommentsStr = kv.get(`paste:${pasteId}:allowComments`);
+  const allowComments = allowCommentsStr === "true" || allowCommentsStr === true;
+  if (!allowComments) return sendJson(res, 403, { message: "Comments disabled" });
+
+  let comments = [];
+  const rawComments = kv.get(`paste:${pasteId}:comments`);
+  try { comments = rawComments ? JSON.parse(rawComments) : []; } catch(e) {}
+
+  comments.push({ author, text, timestamp: Date.now() });
+  kv.set(`paste:${pasteId}:comments`, JSON.stringify(comments));
+
+  sendJson(res, 200, { message: "Comment added" });
 }
 
 // ==================== SERVER ====================
@@ -226,6 +281,7 @@ const server = http.createServer(async (req, res) => {
     if (pathname === "/api/auth") return await handleAuth(req, res);
     if (pathname === "/api/content") return handleContent(req, res);
     if (pathname === "/api/update") return await handleUpdate(req, res);
+    if (pathname === "/api/comment") return await handleComment(req, res);
   } catch (err) {
     console.error("API Error:", err);
     return sendJson(res, 500, { message: "Internal Server Error" });

@@ -80,12 +80,26 @@
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
                     <span>Copy</span>
                 </button>
+                <div class="viewers-badge" id="viewerViewers" style="display:none;" title="Connected Viewers">
+                  👁 <span id="viewerViewersCount">0</span>
+                </div>
                 <div class="toolbar-spacer"></div>
                 <span class="char-label" id="viewerCount">0 chars</span>
             </div>
 
             <div class="panel viewer-panel">
                 <pre id="viewerContent">Loading...</pre>
+            </div>
+
+            <div class="comments-section panel" id="commentsSection" style="display:none; margin-top:20px;">
+              <div class="comments-header">
+                <h3>Comments</h3>
+              </div>
+              <div class="comments-list" id="commentsList"></div>
+              <div class="comments-input-area">
+                <input type="text" id="commentInput" placeholder="Write a comment..." onkeydown="if(event.key==='Enter') postComment()">
+                <button class="cta-btn" onclick="postComment()" style="padding: 6px 12px; font-size:0.75rem;">Send</button>
+              </div>
             </div>
 
             <footer class="foot"><p>Syncs every 1.5s<span class="foot-sep"></span><a href="/">Create your own</a></p></footer>
@@ -120,9 +134,20 @@
             if (!id) { showError(); return; }
             document.getElementById('viewerId').textContent = id;
             try {
-                const r = await fetch(`/api/content?id=${id}`);
+                // Try to get token even if open access
+                const ar = await fetch('/api/auth', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({pin:'', pasteId:id}) });
+                if (ar.ok) { const ad = await ar.json(); token = ad.token; }
+
+                let u = `/api/content?id=${id}`; if (token) u += `&token=${token}`;
+                const r = await fetch(u);
                 if (r.status === 404) { showError(); return; }
-                if (r.ok) { const d = await r.json(); viewerContent.textContent = d.content || ''; updateCount(); showContent(); startSync(null); return; }
+                if (r.ok) { 
+                    const d = await r.json(); 
+                    viewerContent.textContent = d.content || ''; 
+                    updateCount(); showContent(); startSync(token);
+                    updateViewerUI(d);
+                    return; 
+                }
                 if (r.status === 401) { showAuth(); return; }
             } catch(e) { showError(); }
         })();
@@ -153,11 +178,57 @@
 
         function updateCount() { document.getElementById('viewerCount').textContent = (viewerContent.textContent||'').length.toLocaleString()+' chars'; }
 
+        function updateViewerUI(d) {
+            const vc = Math.max(0, d.viewerCount - 1); // exclude self
+            if (vc > 0) {
+                document.getElementById('viewerViewers').style.display = 'inline-flex';
+                document.getElementById('viewerViewersCount').textContent = vc;
+            } else {
+                document.getElementById('viewerViewers').style.display = 'none';
+            }
+            if (d.allowComments) {
+                document.getElementById('commentsSection').style.display = 'flex';
+                renderComments(d.comments, 'commentsList');
+            }
+        }
+
+        function renderComments(comments, listId) {
+            const list = document.getElementById(listId);
+            list.innerHTML = "";
+            comments.forEach(c => {
+                const item = document.createElement("div");
+                item.className = "comment-item";
+                const d = new Date(c.timestamp).toLocaleTimeString();
+                const badge = c.author === "admin" ? `<span class="badge-sm badge-admin">admin</span>` : `<span class="badge-sm badge-viewer">viewer</span>`;
+                item.innerHTML = `<div class="comment-meta">${badge} <span>${d}</span></div><div class="comment-text">${c.text}</div>`;
+                list.appendChild(item);
+            });
+            list.scrollTop = list.scrollHeight;
+        }
+
+        async function postComment() {
+            const input = document.getElementById("commentInput");
+            const text = input.value.trim();
+            if (!text || !token) return;
+            input.value = "";
+            try {
+                await fetch("/api/comment", {
+                    method: "POST", headers: {"Content-Type":"application/json"},
+                    body: JSON.stringify({ pasteId: id, token, text })
+                });
+                fetchContent(token);
+            } catch(e) {}
+        }
+
         async function fetchContent(tk) {
             try {
                 let u = `/api/content?id=${id}`; if (tk) u += `&token=${tk}`;
                 const r = await fetch(u);
-                if (r.ok) { const d = await r.json(); if (d.content !== viewerContent.textContent) { viewerContent.textContent = d.content; updateCount(); } }
+                if (r.ok) { 
+                    const d = await r.json(); 
+                    if (d.content !== viewerContent.textContent) { viewerContent.textContent = d.content; updateCount(); } 
+                    updateViewerUI(d);
+                }
                 else if (r.status === 401) { clearInterval(poll); location.reload(); }
             } catch(e) {}
         }

@@ -31,9 +31,26 @@ export default async function handler(req, res) {
       return res.status(401).json({ message: "Unauthorized" });
     }
 
-    const content = (await kv.get(`paste:${id}:content`)) || "";
+    if (token) {
+      await kv.set(`paste:${id}:viewers:${token}`, "1", { ex: 10 });
+    }
+    
+    let viewerCount = 0;
+    try {
+      const keys = await kv.keys(`paste:${id}:viewers:*`);
+      viewerCount = keys.length;
+    } catch(e) {}
 
-    return res.status(200).json({ content });
+    const content = (await kv.get(`paste:${id}:content`)) || "";
+    
+    const allowCommentsStr = await kv.get(`paste:${id}:allowComments`);
+    const allowComments = allowCommentsStr === "true" || allowCommentsStr === true;
+    let comments = [];
+    if (allowComments) {
+      comments = (await kv.get(`paste:${id}:comments`)) || [];
+    }
+
+    return res.status(200).json({ content, allowComments, comments, viewerCount });
   } catch (error) {
     console.error("Content GET Error:", error);
     return res

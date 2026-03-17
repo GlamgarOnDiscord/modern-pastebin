@@ -26,6 +26,14 @@
 
 ---
 
+## 🆕 What's New
+
+- **Quick Access:** A discreet icon in the top right of the homepage allows you to quickly jump to any paste ID or URL.
+- **Interactive Comments:** Authors can now enable comments on their pastes. Both viewers and admins can discuss in real-time.
+- **Live Viewer Count:** See exactly how many people are currently looking at your code with the real-time active viewers badge.
+
+---
+
 ## 🚀 Overview
 
 **Scribble** is an engineering-centric alternative to traditional pastebins. It features a product-first, terminal-inspired dark mode interface that respects your time. Share code snippets, notes, or configuration files instantly without signing up.

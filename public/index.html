@@ -30,6 +30,24 @@
       <span id="toastText"></span>
     </div>
 
+    <!-- View Paste Modal -->
+    <div id="viewModalOverlay" class="auth-overlay" style="display:none;">
+        <div class="auth-box">
+            <div class="auth-icon">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>
+            </div>
+            <h2>Open a Paste</h2>
+            <p>Enter the paste code or URL.</p>
+            <form id="viewPasteForm">
+                <input type="text" id="pasteCodeInput" class="auth-input" placeholder="e.g. 29xDg" required autocomplete="off" style="letter-spacing: normal; text-align: center;">
+                <div style="display:flex; gap: 8px; margin-top: 16px;">
+                    <button type="button" class="ghost-btn" onclick="closeViewModal()" style="flex:1;">Cancel</button>
+                    <button type="submit" class="cta-btn" style="flex:1;">Open</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <!-- ========== CREATE ========== -->
     <div id="createView" class="view">
       <div class="page">
@@ -39,6 +57,10 @@
             <span class="chip">Instant</span>
             <span class="chip">PIN Lock</span>
             <span class="chip">Live Sync</span>
+            <button class="ghost-btn" style="padding: 6px 12px; font-size: 0.75rem; margin-left: 8px;" onclick="openViewModal()">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:4px;"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>
+              Open Paste
+            </button>
           </div>
         </nav>
 
@@ -54,6 +76,10 @@
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
                 <span id="pinBtnText">PIN</span>
               </button>
+              <label class="comment-toggle">
+                <input type="checkbox" id="allowCommentsCheck">
+                <span class="comment-toggle-label">Comments</span>
+              </label>
               <div class="pin-field" id="pinField">
                 <input type="text" id="pinInput" placeholder="PIN" maxlength="8" autocomplete="off" />
               </div>
@@ -125,12 +151,26 @@
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
             <span>Share</span>
           </button>
+          <div class="viewers-badge" id="editorViewers" style="display:none;" title="Connected Viewers">
+            👁 <span id="editorViewersCount">0</span>
+          </div>
           <div class="toolbar-spacer"></div>
           <span class="char-label" id="editorCharCount">0 chars</span>
         </div>
 
         <div class="panel editor-panel">
           <textarea id="editor" placeholder="Start typing..."></textarea>
+        </div>
+
+        <div class="comments-section panel" id="editorCommentsSection" style="display:none;">
+          <div class="comments-header">
+            <h3>Comments</h3>
+          </div>
+          <div class="comments-list" id="editorCommentsList"></div>
+          <div class="comments-input-area">
+            <input type="text" id="editorCommentInput" placeholder="Write a comment..." onkeydown="if(event.key==='Enter') postEditorComment()">
+            <button class="cta-btn" onclick="postEditorComment()" style="padding: 6px 12px; font-size:0.75rem;">Send</button>
+          </div>
         </div>
 
         <footer class="foot"><p>Auto-saves as you type<span class="foot-sep"></span>Expires in 24h</p></footer>
@@ -178,16 +218,35 @@
         }
       })();
 
+      // View Modal
+      function openViewModal() {
+        document.getElementById("viewModalOverlay").style.display = "flex";
+        setTimeout(() => document.getElementById("pasteCodeInput").focus(), 100);
+      }
+      function closeViewModal() {
+        document.getElementById("viewModalOverlay").style.display = "none";
+        document.getElementById("pasteCodeInput").value = "";
+      }
+      document.getElementById("viewPasteForm").addEventListener("submit", function(e) {
+        e.preventDefault();
+        const val = document.getElementById("pasteCodeInput").value.trim();
+        if (!val) return;
+        let id = val;
+        try { const u = new URL(val); id = u.searchParams.get("id") || val; } catch(err) {}
+        location.href = `/view?id=${id}`;
+      });
+
       // Create
       async function createPaste() {
         const btn = document.getElementById("createBtn");
         const content = document.getElementById("initialContent").value;
         const pin = document.getElementById("pinInput").value.trim();
+        const allowComments = document.getElementById("allowCommentsCheck").checked;
         btn.classList.add("loading"); btn.disabled = true;
         try {
           const r = await fetch("/api/create", {
             method: "POST", headers: {"Content-Type":"application/json"},
-            body: JSON.stringify({ content, pin: pin || null })
+            body: JSON.stringify({ content, pin: pin || null, allowComments })
           });
           if (!r.ok) { toast((await r.json()).message || "Error"); btn.classList.remove("loading"); btn.disabled = false; return; }
           const d = await r.json();
@@ -206,6 +265,7 @@
         document.getElementById("composeSection").style.display = "";
         document.getElementById("initialContent").value = "";
         document.getElementById("pinInput").value = "";
+        document.getElementById("allowCommentsCheck").checked = false;
         pinOpen = false;
         document.getElementById("pinField").classList.remove("open");
         document.getElementById("pinBtn").classList.remove("active");
@@ -216,11 +276,66 @@
       function goToEditor() { location.href = `/?paste=${pasteId}&token=${adminToken}`; }
 
       // Editor
+      let editorPoll = null;
       async function loadContent() {
         try {
           const r = await fetch(`/api/content?id=${pasteId}&token=${adminToken}`);
-          if (r.ok) { const d = await r.json(); document.getElementById("editor").value = d.content || ""; updateEditorCount(); }
+          if (r.ok) { 
+            const d = await r.json(); 
+            document.getElementById("editor").value = d.content || ""; 
+            updateEditorCount(); 
+            updateEditorUI(d);
+            if (!editorPoll) editorPoll = setInterval(pollEditorContent, 2000);
+          }
         } catch(e) { console.error(e); }
+      }
+
+      async function pollEditorContent() {
+        try {
+          const r = await fetch(`/api/content?id=${pasteId}&token=${adminToken}`);
+          if (r.ok) { const d = await r.json(); updateEditorUI(d); }
+        } catch(e) {}
+      }
+
+      function updateEditorUI(d) {
+        if (d.viewerCount > 0) {
+          document.getElementById("editorViewers").style.display = "inline-flex";
+          document.getElementById("editorViewersCount").textContent = d.viewerCount;
+        } else {
+          document.getElementById("editorViewers").style.display = "none";
+        }
+        if (d.allowComments) {
+          document.getElementById("editorCommentsSection").style.display = "flex";
+          renderComments(d.comments, "editorCommentsList");
+        }
+      }
+
+      function renderComments(comments, listId) {
+        const list = document.getElementById(listId);
+        list.innerHTML = "";
+        comments.forEach(c => {
+          const item = document.createElement("div");
+          item.className = "comment-item";
+          const d = new Date(c.timestamp).toLocaleTimeString();
+          const badge = c.author === "admin" ? `<span class="badge-sm badge-admin">admin</span>` : `<span class="badge-sm badge-viewer">viewer</span>`;
+          item.innerHTML = `<div class="comment-meta">${badge} <span>${d}</span></div><div class="comment-text">${c.text}</div>`;
+          list.appendChild(item);
+        });
+        list.scrollTop = list.scrollHeight;
+      }
+
+      async function postEditorComment() {
+        const input = document.getElementById("editorCommentInput");
+        const text = input.value.trim();
+        if (!text) return;
+        input.value = "";
+        try {
+          await fetch("/api/comment", {
+            method: "POST", headers: {"Content-Type":"application/json"},
+            body: JSON.stringify({ pasteId, token: adminToken, text })
+          });
+          pollEditorContent();
+        } catch(e) {}
       }
 
       function setStatus(s) {

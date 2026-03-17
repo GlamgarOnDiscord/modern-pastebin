@@ -25,7 +25,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { pin, content } = req.body;
+    const { pin, content, allowComments } = req.body;
 
     // Generate unique paste ID (retry if collision)
     let pasteId;
@@ -52,6 +52,8 @@ export default async function handler(req, res) {
       kv.set(`paste:${pasteId}:adminToken`, adminToken),
       kv.set(`paste:${pasteId}:viewerToken`, viewerToken),
       kv.set(`paste:${pasteId}:createdAt`, now),
+      kv.set(`paste:${pasteId}:allowComments`, allowComments === true || allowComments === "true" ? "true" : "false"),
+      kv.set(`paste:${pasteId}:comments`, []),
     ]);
 
     return res.status(200).json({
