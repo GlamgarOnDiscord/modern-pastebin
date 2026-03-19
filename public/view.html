@@ -102,7 +102,7 @@
               </div>
             </div>
 
-            <footer class="foot"><p>Syncs every 1.5s<span class="foot-sep"></span><a href="/">Create your own</a></p></footer>
+            <footer class="foot"><p>Syncs every 10s<span class="foot-sep"></span><a href="/">Create your own</a></p></footer>
         </div>
     </div>
 
@@ -113,8 +113,8 @@
         const authOverlay = document.getElementById('authOverlay');
 
         let id = null, token = null, poll = null;
-        let pollMs = 1500;
-        const ACTIVE = 1500, IDLE = 5000;
+        let pollMs = 10000;
+        const ACTIVE = 10000, IDLE = 30000;
 
         let tt;
         function toast(m) {

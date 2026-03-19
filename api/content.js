@@ -12,16 +12,20 @@ export default async function handler(req, res) {
       return res.status(400).json({ message: "Missing paste ID" });
     }
 
-    // Check paste exists
-    const createdAt = await kv.get(`paste:${id}:createdAt`);
+    // Batch fetch most metadata to save Redis requests quota
+    const [createdAt, adminToken, viewerToken, storedPin, contentData, allowCommentsStr, commentsData] = await kv.mget(
+      `paste:${id}:createdAt`,
+      `paste:${id}:adminToken`,
+      `paste:${id}:viewerToken`,
+      `paste:${id}:pin`,
+      `paste:${id}:content`,
+      `paste:${id}:allowComments`,
+      `paste:${id}:comments`
+    );
+
     if (!createdAt) {
       return res.status(404).json({ message: "Paste not found" });
     }
-
-    // Validate token — must be either the admin token or the viewer token
-    const adminToken = await kv.get(`paste:${id}:adminToken`);
-    const viewerToken = await kv.get(`paste:${id}:viewerToken`);
-    const storedPin = await kv.get(`paste:${id}:pin`);
 
     // If paste has no PIN, allow open access without a token
     const isOpenAccess = !storedPin;
@@ -31,8 +35,9 @@ export default async function handler(req, res) {
       return res.status(401).json({ message: "Unauthorized" });
     }
 
+    // Update viewer token expiry with a longer duration (30s) since polling is slower
     if (token) {
-      await kv.set(`paste:${id}:viewers:${token}`, "1", { ex: 10 });
+      await kv.set(`paste:${id}:viewers:${token}`, "1", { ex: 30 });
     }
     
     let viewerCount = 0;
@@ -41,14 +46,9 @@ export default async function handler(req, res) {
       viewerCount = keys.length;
     } catch(e) {}
 
-    const content = (await kv.get(`paste:${id}:content`)) || "";
-    
-    const allowCommentsStr = await kv.get(`paste:${id}:allowComments`);
+    const content = contentData || "";
     const allowComments = allowCommentsStr === "true" || allowCommentsStr === true;
-    let comments = [];
-    if (allowComments) {
-      comments = (await kv.get(`paste:${id}:comments`)) || [];
-    }
+    const comments = allowComments ? (commentsData || []) : [];
 
     return res.status(200).json({ content, allowComments, comments, viewerCount });
   } catch (error) {
