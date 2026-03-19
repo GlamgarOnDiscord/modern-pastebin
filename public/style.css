@@ -678,3 +678,183 @@ pre {
 
 /* Viewers Badge */
 .viewers-badge { display: inline-flex; align-items: center; gap: 4px; font-size: 0.72rem; font-weight: 500; color: var(--accent); background: var(--accent-subtle); padding: 4px 8px; border-radius: var(--r-pill); border: 1px solid rgba(16,185,129,0.2); animation: pulseGlow 2s infinite; }
+
+/* ==================== TTL SELECT ==================== */
+.ttl-select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding: 7px 28px 7px 12px;
+  border-radius: var(--r-s);
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  color: var(--text-2);
+  font-size: 0.76rem;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 150ms var(--ease);
+  outline: none;
+  background-image: url("data:image/svg+xml,%3Csvg width='10' height='6' viewBox='0 0 10 6' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%238b95a5' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+}
+.ttl-select:hover { background-color: var(--surface-2); border-color: var(--border-hover); }
+.ttl-select:focus { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-glow); }
+.ttl-select option { background: #1a1a1e; color: var(--text-1); }
+
+/* ==================== BURN NOTICE ==================== */
+.burn-notice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  background: rgba(239, 68, 68, 0.06);
+  border: 1px solid rgba(239, 68, 68, 0.15);
+  border-radius: var(--r-m);
+  color: #f87171;
+  font-size: 0.78rem;
+  font-weight: 500;
+  margin-bottom: 8px;
+  animation: fadeUp 0.3s var(--ease-out);
+}
+
+/* ==================== ACTION BAR RIGHT ==================== */
+.action-bar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ==================== VIEW MODE TABS ==================== */
+.view-mode-tabs {
+  display: inline-flex;
+  background: var(--surface-0);
+  border: 1px solid var(--border);
+  border-radius: var(--r-s);
+  overflow: hidden;
+}
+.view-tab {
+  padding: 5px 12px;
+  border: none;
+  background: transparent;
+  color: var(--text-3);
+  font-size: 0.72rem;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 150ms var(--ease);
+  border-right: 1px solid var(--border);
+}
+.view-tab:last-child { border-right: none; }
+.view-tab:hover { color: var(--text-1); background: var(--surface-1); }
+.view-tab.active {
+  color: var(--accent);
+  background: var(--accent-subtle);
+}
+
+/* ==================== TOOL BTN ACTIVE STATE ==================== */
+.tool-btn.active {
+  color: var(--accent);
+  border-color: rgba(16,185,129,0.2);
+  background: var(--accent-subtle);
+}
+
+/* ==================== TOOL BTN DANGER ==================== */
+.tool-btn-danger:hover {
+  color: var(--danger) !important;
+  border-color: rgba(239,68,68,0.25) !important;
+  background: rgba(239,68,68,0.06) !important;
+}
+
+/* ==================== LINE NUMBERS ==================== */
+.line-num {
+  display: inline-block;
+  min-width: 2.5em;
+  padding-right: 1em;
+  margin-right: 0.5em;
+  color: var(--text-4);
+  text-align: right;
+  user-select: none;
+  border-right: 1px solid var(--border);
+}
+
+/* ==================== MARKDOWN BODY ==================== */
+.markdown-body {
+  padding: 22px 24px;
+  font-size: 0.9rem;
+  line-height: 1.7;
+  color: var(--text-1);
+}
+.markdown-body h1, .markdown-body h2, .markdown-body h3, .markdown-body h4 {
+  margin-top: 1.2em;
+  margin-bottom: 0.5em;
+  font-weight: 600;
+  color: var(--text-1);
+}
+.markdown-body h1 { font-size: 1.5rem; border-bottom: 1px solid var(--border); padding-bottom: 0.3em; }
+.markdown-body h2 { font-size: 1.25rem; border-bottom: 1px solid var(--border); padding-bottom: 0.3em; }
+.markdown-body h3 { font-size: 1.1rem; }
+.markdown-body p { margin: 0.6em 0; }
+.markdown-body a { color: var(--accent); text-decoration: underline; }
+.markdown-body a:hover { color: var(--success); }
+.markdown-body code {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.85em;
+  padding: 2px 6px;
+  background: var(--surface-2);
+  border-radius: 4px;
+  border: 1px solid var(--border);
+}
+.markdown-body pre {
+  padding: 14px 18px;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: var(--r-m);
+  overflow-x: auto;
+  margin: 0.8em 0;
+}
+.markdown-body pre code {
+  padding: 0;
+  background: transparent;
+  border: none;
+  font-size: 0.82rem;
+  line-height: 1.6;
+}
+.markdown-body ul, .markdown-body ol {
+  padding-left: 1.5em;
+  margin: 0.5em 0;
+}
+.markdown-body li { margin: 0.25em 0; }
+.markdown-body blockquote {
+  margin: 0.6em 0;
+  padding: 0.5em 1em;
+  border-left: 3px solid var(--accent);
+  background: var(--surface-0);
+  border-radius: 0 var(--r-s) var(--r-s) 0;
+  color: var(--text-2);
+}
+.markdown-body table { width: 100%; border-collapse: collapse; margin: 0.8em 0; }
+.markdown-body th, .markdown-body td {
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  text-align: left;
+}
+.markdown-body th { background: var(--surface-1); font-weight: 600; }
+.markdown-body hr { border: none; border-top: 1px solid var(--border); margin: 1.2em 0; }
+.markdown-body img { max-width: 100%; border-radius: var(--r-m); }
+
+/* Highlight.js theme override */
+.hljs {
+  background: transparent !important;
+  padding: 0 !important;
+}
+
+/* ==================== RESPONSIVE ADDITIONS ==================== */
+@media (max-width: 640px) {
+  .view-mode-tabs { font-size: 0.65rem; }
+  .view-tab { padding: 4px 8px; font-size: 0.65rem; }
+  .ttl-select { font-size: 0.7rem; padding: 6px 24px 6px 8px; }
+  .editor-bar { flex-wrap: wrap; gap: 6px; }
+  .action-bar-right { width: 100%; justify-content: flex-end; }
+  .burn-notice { font-size: 0.72rem; }
+}

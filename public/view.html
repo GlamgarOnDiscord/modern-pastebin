@@ -19,6 +19,13 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link rel="stylesheet" href="style.css">
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>%E2%9C%A6</text></svg>">
+    
+    <!-- Highlight.js for syntax highlighting -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    
+    <!-- Marked.js for Markdown rendering -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.1/marked.min.js"></script>
 </head>
 <body>
 
@@ -43,6 +50,21 @@
                     <span class="spinner"></span>
                 </button>
             </form>
+        </div>
+    </div>
+
+    <!-- Burned -->
+    <div id="burnedView" class="view" style="display:none;">
+        <div class="page" style="justify-content:center;min-height:80dvh;">
+            <nav>
+                <a href="/" class="brand"><span class="brand-mark" aria-hidden="true">&#10022;</span> Scribble</a>
+            </nav>
+            <div class="error-state panel">
+                <div style="font-size: 2rem;">🔥</div>
+                <h2>Paste burned</h2>
+                <p>This paste has been destroyed after reading.</p>
+                <a href="/" class="ghost-btn" style="margin-top:8px;text-decoration:none;">Create a new paste</a>
+            </div>
         </div>
     </div>
 
@@ -76,10 +98,53 @@
             </nav>
 
             <div class="editor-bar">
+                <!-- View mode switcher -->
+                <div class="view-mode-tabs">
+                    <button class="view-tab active" id="tabRaw" onclick="setViewMode('raw')">Raw</button>
+                    <button class="view-tab" id="tabHighlight" onclick="setViewMode('highlight')">Syntax</button>
+                    <button class="view-tab" id="tabMarkdown" onclick="setViewMode('markdown')">Markdown</button>
+                </div>
+
+                <!-- Language selector for syntax highlighting -->
+                <select id="langSelect" class="ttl-select" style="display:none;" onchange="applyHighlight()">
+                    <option value="auto">Auto-detect</option>
+                    <option value="javascript">JavaScript</option>
+                    <option value="python">Python</option>
+                    <option value="html">HTML</option>
+                    <option value="css">CSS</option>
+                    <option value="json">JSON</option>
+                    <option value="typescript">TypeScript</option>
+                    <option value="java">Java</option>
+                    <option value="cpp">C++</option>
+                    <option value="csharp">C#</option>
+                    <option value="php">PHP</option>
+                    <option value="ruby">Ruby</option>
+                    <option value="go">Go</option>
+                    <option value="rust">Rust</option>
+                    <option value="sql">SQL</option>
+                    <option value="bash">Bash</option>
+                    <option value="yaml">YAML</option>
+                    <option value="xml">XML</option>
+                    <option value="markdown">Markdown</option>
+                    <option value="lua">Lua</option>
+                </select>
+
                 <button class="tool-btn" onclick="copyContent()" id="copyBtn">
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
                     <span>Copy</span>
                 </button>
+
+                <button class="tool-btn" onclick="downloadContent()" id="downloadBtn" title="Download as file">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                    <span>Download</span>
+                </button>
+
+                <!-- Line numbers toggle -->
+                <button class="tool-btn" onclick="toggleLineNumbers()" id="lineNumBtn" title="Toggle line numbers">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+                    <span>Lines</span>
+                </button>
+
                 <div class="viewers-badge" id="viewerViewers" style="display:none;" title="Connected Viewers">
                   👁 <span id="viewerViewersCount">0</span>
                 </div>
@@ -87,8 +152,19 @@
                 <span class="char-label" id="viewerCount">0 chars</span>
             </div>
 
-            <div class="panel viewer-panel">
+            <!-- Raw view -->
+            <div class="panel viewer-panel" id="rawPanel">
                 <pre id="viewerContent">Loading...</pre>
+            </div>
+
+            <!-- Syntax highlighted view -->
+            <div class="panel viewer-panel" id="highlightPanel" style="display:none;">
+                <pre><code id="highlightedContent" class="hljs"></code></pre>
+            </div>
+
+            <!-- Markdown rendered view -->
+            <div class="panel viewer-panel markdown-body" id="markdownPanel" style="display:none;">
+                <div id="markdownContent"></div>
             </div>
 
             <div class="comments-section panel" id="commentsSection" style="display:none; margin-top:20px;">
@@ -97,7 +173,7 @@
               </div>
               <div class="comments-list" id="commentsList"></div>
               <div class="comments-input-area">
-                <input type="text" id="commentInput" placeholder="Write a comment..." onkeydown="if(event.key==='Enter') postComment()">
+                <input type="text" id="commentInput" maxlength="500" placeholder="Write a comment..." onkeydown="if(event.key==='Enter') postComment()">
                 <button class="cta-btn" onclick="postComment()" style="padding: 6px 12px; font-size:0.75rem;">Send</button>
               </div>
             </div>
@@ -111,8 +187,12 @@
         const contentView = document.getElementById('contentView');
         const errorView = document.getElementById('errorView');
         const authOverlay = document.getElementById('authOverlay');
+        const burnedView = document.getElementById('burnedView');
 
         let id = null, token = null, poll = null;
+        let rawContent = "";
+        let viewMode = "raw";
+        let lineNumbersOn = false;
         let pollMs = 10000;
         const ACTIVE = 10000, IDLE = 30000;
 
@@ -128,7 +208,113 @@
             if (poll) { clearInterval(poll); pollMs = document.hidden ? IDLE : ACTIVE; poll = setInterval(() => fetchContent(token), pollMs); }
         });
 
-        // Init
+        // ── View Mode Switching ──
+        function setViewMode(mode) {
+            viewMode = mode;
+            document.querySelectorAll('.view-tab').forEach(t => t.classList.remove('active'));
+            document.getElementById('tabRaw').classList.toggle('active', mode === 'raw');
+            document.getElementById('tabHighlight').classList.toggle('active', mode === 'highlight');
+            document.getElementById('tabMarkdown').classList.toggle('active', mode === 'markdown');
+
+            document.getElementById('rawPanel').style.display = mode === 'raw' ? '' : 'none';
+            document.getElementById('highlightPanel').style.display = mode === 'highlight' ? '' : 'none';
+            document.getElementById('markdownPanel').style.display = mode === 'markdown' ? '' : 'none';
+            document.getElementById('langSelect').style.display = mode === 'highlight' ? '' : 'none';
+            document.getElementById('lineNumBtn').style.display = (mode === 'raw' || mode === 'highlight') ? '' : 'none';
+
+            if (mode === 'highlight') applyHighlight();
+            if (mode === 'markdown') applyMarkdown();
+            if (mode === 'raw') applyRawView();
+        }
+
+        function applyHighlight() {
+            const code = document.getElementById('highlightedContent');
+            const lang = document.getElementById('langSelect').value;
+            code.textContent = rawContent;
+            code.className = 'hljs';
+            if (lang !== 'auto') {
+                code.classList.add(`language-${lang}`);
+            }
+            hljs.highlightElement(code);
+            if (lineNumbersOn) addLineNumbersToElement(code);
+        }
+
+        function applyMarkdown() {
+            const container = document.getElementById('markdownContent');
+            // Configure marked for security: disable raw HTML in markdown
+            const rendered = marked.parse(rawContent || "", {
+              breaks: true,
+              gfm: true,
+            });
+            // Strip any raw HTML tags from the rendered output for safety
+            const temp = document.createElement('div');
+            temp.innerHTML = rendered;
+            // Remove script tags and event handlers
+            temp.querySelectorAll('script, iframe, object, embed, form').forEach(el => el.remove());
+            temp.querySelectorAll('*').forEach(el => {
+              for (const attr of [...el.attributes]) {
+                if (attr.name.startsWith('on') || attr.value.startsWith('javascript:')) {
+                  el.removeAttribute(attr.name);
+                }
+              }
+              // Remove href="javascript:..."
+              if (el.tagName === 'A' && el.getAttribute('href')?.startsWith('javascript:')) {
+                el.removeAttribute('href');
+              }
+            });
+            container.innerHTML = temp.innerHTML;
+        }
+
+        function applyRawView() {
+            if (lineNumbersOn) {
+                applyLineNumbers();
+            } else {
+                viewerContent.textContent = rawContent;
+            }
+        }
+
+        // ── Line Numbers ──
+        function toggleLineNumbers() {
+            lineNumbersOn = !lineNumbersOn;
+            document.getElementById('lineNumBtn').classList.toggle('active', lineNumbersOn);
+            if (viewMode === 'raw') applyRawView();
+            else if (viewMode === 'highlight') applyHighlight();
+        }
+
+        function applyLineNumbers() {
+            const lines = rawContent.split('\n');
+            const padLen = String(lines.length).length;
+            viewerContent.textContent = lines.map((line, i) => {
+                const num = String(i + 1).padStart(padLen, ' ');
+                return `${num} │ ${line}`;
+            }).join('\n');
+        }
+
+        function addLineNumbersToElement(codeEl) {
+            // For highlighted code, wrap each line with line numbers
+            const lines = codeEl.innerHTML.split('\n');
+            const padLen = String(lines.length).length;
+            codeEl.innerHTML = lines.map((line, i) => {
+                const num = String(i + 1).padStart(padLen, ' ');
+                return `<span class="line-num">${num}</span>${line}`;
+            }).join('\n');
+        }
+
+        // ── Download ──
+        function downloadContent() {
+            const blob = new Blob([rawContent], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `scribble-${id || 'paste'}.txt`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            toast('Downloaded');
+        }
+
+        // ── Init ──
         (async () => {
             id = new URLSearchParams(location.search).get('id');
             if (!id) { showError(); return; }
@@ -136,14 +322,17 @@
             try {
                 // Try to get token even if open access
                 const ar = await fetch('/api/auth', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({pin:'', pasteId:id}) });
+                if (ar.status === 410) { showBurned(); return; }
                 if (ar.ok) { const ad = await ar.json(); token = ad.token; }
 
                 let u = `/api/content?id=${id}`; if (token) u += `&token=${token}`;
                 const r = await fetch(u);
                 if (r.status === 404) { showError(); return; }
+                if (r.status === 410) { showBurned(); return; }
                 if (r.ok) { 
                     const d = await r.json(); 
-                    viewerContent.textContent = d.content || ''; 
+                    rawContent = d.content || '';
+                    viewerContent.textContent = rawContent;
                     updateCount(); showContent(); startSync(token);
                     updateViewerUI(d);
                     return; 
@@ -152,9 +341,10 @@
             } catch(e) { showError(); }
         })();
 
-        function showContent() { contentView.style.display=''; contentView.style.opacity='1'; contentView.style.pointerEvents=''; contentView.style.filter=''; errorView.style.display='none'; authOverlay.style.display='none'; }
-        function showError() { contentView.style.display='none'; errorView.style.display=''; authOverlay.style.display='none'; }
-        function showAuth() { contentView.style.opacity='0.06'; contentView.style.pointerEvents='none'; contentView.style.filter='blur(8px)'; authOverlay.style.display=''; errorView.style.display='none'; }
+        function showContent() { contentView.style.display=''; contentView.style.opacity='1'; contentView.style.pointerEvents=''; contentView.style.filter=''; errorView.style.display='none'; authOverlay.style.display='none'; burnedView.style.display='none'; }
+        function showError() { contentView.style.display='none'; errorView.style.display=''; authOverlay.style.display='none'; burnedView.style.display='none'; }
+        function showBurned() { contentView.style.display='none'; errorView.style.display='none'; authOverlay.style.display='none'; burnedView.style.display=''; }
+        function showAuth() { contentView.style.opacity='0.06'; contentView.style.pointerEvents='none'; contentView.style.filter='blur(8px)'; authOverlay.style.display=''; errorView.style.display='none'; burnedView.style.display='none'; }
 
         document.getElementById('authForm').addEventListener('submit', async e => {
             e.preventDefault();
@@ -165,6 +355,7 @@
             document.getElementById('authError').textContent = '';
             try {
                 const r = await fetch('/api/auth', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({pin, pasteId:id}) });
+                if (r.status === 410) { showBurned(); return; }
                 const d = await r.json();
                 if (r.ok && d.token) { token = d.token; showContent(); startSync(token); toast("Unlocked"); }
                 else {
@@ -176,10 +367,10 @@
             } catch(err) { document.getElementById('authError').textContent = 'Server error'; btn.classList.remove('loading'); btn.disabled = false; }
         });
 
-        function updateCount() { document.getElementById('viewerCount').textContent = (viewerContent.textContent||'').length.toLocaleString()+' chars'; }
+        function updateCount() { document.getElementById('viewerCount').textContent = (rawContent || '').length.toLocaleString()+' chars'; }
 
         function updateViewerUI(d) {
-            const vc = Math.max(0, d.viewerCount - 1); // exclude self
+            const vc = Math.max(0, d.viewerCount - 1);
             if (vc > 0) {
                 document.getElementById('viewerViewers').style.display = 'inline-flex';
                 document.getElementById('viewerViewersCount').textContent = vc;
@@ -192,6 +383,7 @@
             }
         }
 
+        // ── Comments (XSS-safe) ──
         function renderComments(comments, listId) {
             const list = document.getElementById(listId);
             list.innerHTML = "";
@@ -199,8 +391,27 @@
                 const item = document.createElement("div");
                 item.className = "comment-item";
                 const d = new Date(c.timestamp).toLocaleTimeString();
-                const badge = c.author === "admin" ? `<span class="badge-sm badge-admin">admin</span>` : `<span class="badge-sm badge-viewer">viewer</span>`;
-                item.innerHTML = `<div class="comment-meta">${badge} <span>${d}</span></div><div class="comment-text">${c.text}</div>`;
+
+                const meta = document.createElement("div");
+                meta.className = "comment-meta";
+
+                const badge = document.createElement("span");
+                badge.className = c.author === "admin" ? "badge-sm badge-admin" : "badge-sm badge-viewer";
+                badge.textContent = c.author;
+
+                const time = document.createElement("span");
+                time.textContent = d;
+
+                meta.appendChild(badge);
+                meta.appendChild(document.createTextNode(" "));
+                meta.appendChild(time);
+
+                const text = document.createElement("div");
+                text.className = "comment-text";
+                text.textContent = c.text; // textContent = XSS safe
+
+                item.appendChild(meta);
+                item.appendChild(text);
                 list.appendChild(item);
             });
             list.scrollTop = list.scrollHeight;
@@ -210,13 +421,15 @@
             const input = document.getElementById("commentInput");
             const text = input.value.trim();
             if (!text || !token) return;
+            if (text.length > 500) { toast("Comment too long (max 500)"); return; }
             input.value = "";
             try {
-                await fetch("/api/comment", {
+                const r = await fetch("/api/comment", {
                     method: "POST", headers: {"Content-Type":"application/json"},
                     body: JSON.stringify({ pasteId: id, token, text })
                 });
-                fetchContent(token);
+                if (r.ok) fetchContent(token);
+                else { const d = await r.json(); toast(d.message || "Error"); }
             } catch(e) {}
         }
 
@@ -224,9 +437,17 @@
             try {
                 let u = `/api/content?id=${id}`; if (tk) u += `&token=${tk}`;
                 const r = await fetch(u);
+                if (r.status === 410) { clearInterval(poll); showBurned(); return; }
                 if (r.ok) { 
                     const d = await r.json(); 
-                    if (d.content !== viewerContent.textContent) { viewerContent.textContent = d.content; updateCount(); } 
+                    if (d.content !== rawContent) {
+                        rawContent = d.content;
+                        // Re-render current view mode
+                        if (viewMode === 'raw') applyRawView();
+                        else if (viewMode === 'highlight') applyHighlight();
+                        else if (viewMode === 'markdown') applyMarkdown();
+                        updateCount();
+                    }
                     updateViewerUI(d);
                 }
                 else if (r.status === 401) { clearInterval(poll); location.reload(); }
@@ -236,7 +457,7 @@
         function startSync(tk) { fetchContent(tk); pollMs = document.hidden ? IDLE : ACTIVE; poll = setInterval(() => fetchContent(tk), pollMs); }
 
         function copyContent() {
-            navigator.clipboard.writeText(viewerContent.textContent).then(() => {
+            navigator.clipboard.writeText(rawContent).then(() => {
                 const b = document.getElementById('copyBtn'), s = b.querySelector('span');
                 b.classList.add('copied'); s.textContent = 'Copied!'; toast('Copied');
                 setTimeout(() => { b.classList.remove('copied'); s.textContent = 'Copy'; }, 1500);

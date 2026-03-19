@@ -1,38 +1,61 @@
 import { kv } from "@vercel/kv";
+import crypto from "crypto";
 
-function generateId(length = 5) {
+// ── Security helpers ──
+function generateId(length = 6) {
   const chars = "ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789";
-  let result = "";
-  for (let i = 0; i < length; i++) {
-    result += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return result;
+  const bytes = crypto.getRandomValues(new Uint8Array(length));
+  return Array.from(bytes, (b) => chars[b % chars.length]).join("");
 }
 
 function generateToken() {
-  const chars =
-    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-  let result = "";
-  for (let i = 0; i < 48; i++) {
-    result += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return result;
+  return crypto.randomUUID() + "-" + crypto.randomUUID();
 }
 
+function securityHeaders(res) {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader("X-XSS-Protection", "1; mode=block");
+  res.setHeader("Referrer-Policy", "no-referrer");
+}
+
+// ── TTL map (seconds) ──
+const TTL_MAP = {
+  "1h": 3600,
+  "6h": 21600,
+  "24h": 86400,
+  "7d": 604800,
+};
+
 export default async function handler(req, res) {
+  securityHeaders(res);
+
   if (req.method !== "POST") {
     return res.status(405).json({ message: "Method Not Allowed" });
   }
 
   try {
-    const { pin, content, allowComments } = req.body;
+    const { pin, content, allowComments, ttl, burnAfterReading } = req.body;
 
-    // Generate unique paste ID (retry if collision)
+    // ── Input Validation ──
+    const textContent = typeof content === "string" ? content : "";
+    if (textContent.length > 100_000) {
+      return res.status(400).json({ message: "Content too large (max 100 KB)" });
+    }
+
+    if (pin !== null && pin !== undefined && pin !== "") {
+      const pinStr = String(pin);
+      if (pinStr.length < 4 || pinStr.length > 8 || !/^[a-zA-Z0-9]+$/.test(pinStr)) {
+        return res.status(400).json({ message: "PIN must be 4-8 alphanumeric characters" });
+      }
+    }
+
+    // ── Generate unique paste ID ──
     let pasteId;
     let attempts = 0;
     do {
       pasteId = generateId();
-      const existing = await kv.get(`paste:${pasteId}:createdAt`);
+      const existing = await kv.hget(`paste:${pasteId}`, "createdAt");
       if (!existing) break;
       attempts++;
     } while (attempts < 5);
@@ -44,24 +67,34 @@ export default async function handler(req, res) {
     const adminToken = generateToken();
     const viewerToken = generateToken();
     const now = Date.now();
+    const ttlKey = TTL_MAP[ttl] ? ttl : "24h";
+    const ttlSeconds = TTL_MAP[ttlKey];
 
-    // Store all paste data in KV
-    await Promise.all([
-      kv.set(`paste:${pasteId}:content`, content || ""),
-      kv.set(`paste:${pasteId}:pin`, pin || null),
-      kv.set(`paste:${pasteId}:adminToken`, adminToken),
-      kv.set(`paste:${pasteId}:viewerToken`, viewerToken),
-      kv.set(`paste:${pasteId}:createdAt`, now),
-      kv.set(`paste:${pasteId}:allowComments`, allowComments === true || allowComments === "true" ? "true" : "false"),
-      kv.set(`paste:${pasteId}:comments`, []),
-    ]);
+    // ── Store all paste data in ONE Redis Hash ──
+    await kv.hset(`paste:${pasteId}`, {
+      content: textContent,
+      pin: pin || "",
+      adminToken,
+      viewerToken,
+      createdAt: now,
+      allowComments: allowComments === true || allowComments === "true" ? "true" : "false",
+      comments: "[]",
+      ttl: ttlKey,
+      burnAfterReading: burnAfterReading === true || burnAfterReading === "true" ? "true" : "false",
+      burned: "false",
+    });
+
+    // ── Set auto-expiry on the entire hash ──
+    await kv.expire(`paste:${pasteId}`, ttlSeconds);
 
     return res.status(200).json({
       pasteId,
       adminToken,
       viewerToken,
-      hasPin: !!pin,
+      hasPin: !!(pin && pin !== ""),
       createdAt: now,
+      ttl: ttlKey,
+      burnAfterReading: burnAfterReading === true || burnAfterReading === "true",
     });
   } catch (error) {
     console.error("Create Error:", error);

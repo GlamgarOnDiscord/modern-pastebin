@@ -15,18 +15,17 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { content, pasteId, adminToken } = req.body;
+    const { pasteId, adminToken } = req.body;
 
     if (!pasteId || typeof pasteId !== "string" || pasteId.length > 20) {
       return res.status(400).json({ message: "Invalid paste ID" });
     }
 
-    const textContent = typeof content === "string" ? content : "";
-    if (textContent.length > 100_000) {
-      return res.status(400).json({ message: "Content too large (max 100 KB)" });
+    if (!adminToken) {
+      return res.status(400).json({ message: "Missing admin token" });
     }
 
-    // ── Verify admin token via hash field ──
+    // ── Verify admin token ──
     const storedToken = await kv.hget(`paste:${pasteId}`, "adminToken");
     if (!storedToken) {
       return res.status(404).json({ message: "Paste not found" });
@@ -36,12 +35,12 @@ export default async function handler(req, res) {
       return res.status(401).json({ message: "Unauthorized" });
     }
 
-    // ── Update content in the hash ──
-    await kv.hset(`paste:${pasteId}`, { content: textContent });
+    // ── Delete the entire paste hash ──
+    await kv.del(`paste:${pasteId}`);
 
-    return res.status(200).json({ message: "Saved successfully" });
+    return res.status(200).json({ message: "Paste deleted" });
   } catch (error) {
-    console.error("Update Error:", error);
+    console.error("Delete Error:", error);
     return res.status(500).json({ message: "Internal Server Error" });
   }
 }

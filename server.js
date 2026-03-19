@@ -2,59 +2,65 @@ const http = require("http");
 const fs = require("fs");
 const path = require("path");
 const url = require("url");
+const crypto = require("crypto");
 
 // ==================== IN-MEMORY STORAGE ====================
 const store = {};
 
-const PASTE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+// TTL map (milliseconds)
+const TTL_MAP = {
+  "1h": 3600000,
+  "6h": 21600000,
+  "24h": 86400000,
+  "7d": 604800000,
+};
 
+// Simulated Redis Hash operations for local dev
 const kv = {
-  get(key) {
-    return store[key] !== undefined ? store[key] : null;
+  hset(key, fields) {
+    if (!store[key]) store[key] = {};
+    Object.assign(store[key], fields);
   },
-  set(key, value) {
-    store[key] = value;
+  hget(key, field) {
+    return store[key] ? store[key][field] || null : null;
+  },
+  hgetall(key) {
+    return store[key] || null;
+  },
+  del(key) {
+    delete store[key];
+  },
+  set(key, value, opts) {
+    store[key] = { _value: value };
+    if (opts && opts.ex) {
+      setTimeout(() => delete store[key], opts.ex * 1000);
+    }
+  },
+  get(key) {
+    return store[key] ? store[key]._value : null;
+  },
+  keys(pattern) {
+    const prefix = pattern.replace("*", "");
+    return Object.keys(store).filter((k) => k.startsWith(prefix));
+  },
+  expire(key, seconds) {
+    setTimeout(() => delete store[key], seconds * 1000);
   },
 };
 
-// Auto-cleanup expired pastes every 10 minutes
-setInterval(() => {
-  const now = Date.now();
-  const seen = new Set();
-  for (const key of Object.keys(store)) {
-    const match = key.match(/^paste:(.+?):/);
-    if (match && !seen.has(match[1])) {
-      seen.add(match[1]);
-      const createdAt = store[`paste:${match[1]}:createdAt`];
-      if (createdAt && now - createdAt > PASTE_TTL_MS) {
-        for (const k of Object.keys(store)) {
-          if (k.startsWith(`paste:${match[1]}:`)) delete store[k];
-        }
-        console.log(`  ✕ Expired paste ${match[1]}`);
-      }
-    }
-  }
-}, 10 * 60 * 1000);
-
 // ==================== HELPERS ====================
-function generateId(length = 5) {
+function generateId(length = 6) {
   const chars = "ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789";
-  let result = "";
-  for (let i = 0; i < length; i++) {
-    result += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return result;
+  const bytes = crypto.randomBytes(length);
+  return Array.from(bytes, (b) => chars[b % chars.length]).join("");
 }
 
 function generateToken() {
-  const chars =
-    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-  let result = "";
-  for (let i = 0; i < 48; i++) {
-    result += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return result;
+  return crypto.randomUUID() + "-" + crypto.randomUUID();
 }
+
+// Note: XSS prevention is handled client-side via textContent (DOM API).
+// No server-side sanitization needed — would cause double-encoding.
 
 function parseBody(req) {
   return new Promise((resolve, reject) => {
@@ -75,6 +81,10 @@ function sendJson(res, status, data) {
   res.writeHead(status, {
     "Content-Type": "application/json",
     "Access-Control-Allow-Origin": "*",
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "X-XSS-Protection": "1; mode=block",
+    "Referrer-Policy": "no-referrer",
   });
   res.end(JSON.stringify(data));
 }
@@ -107,15 +117,35 @@ function serveStatic(res, filePath) {
 
 // ==================== API HANDLERS ====================
 async function handleCreate(req, res) {
-  if (req.method !== "POST") return sendJson(res, 405, { message: "Method Not Allowed" });
+  if (req.method !== "POST")
+    return sendJson(res, 405, { message: "Method Not Allowed" });
 
-  const { pin, content, allowComments } = await parseBody(req);
+  const { pin, content, allowComments, ttl, burnAfterReading } = await parseBody(req);
+
+  // Input validation
+  const textContent = typeof content === "string" ? content : "";
+  if (textContent.length > 100000) {
+    return sendJson(res, 400, { message: "Content too large (max 100 KB)" });
+  }
+
+  if (pin !== null && pin !== undefined && pin !== "") {
+    const pinStr = String(pin);
+    if (
+      pinStr.length < 4 ||
+      pinStr.length > 8 ||
+      !/^[a-zA-Z0-9]+$/.test(pinStr)
+    ) {
+      return sendJson(res, 400, {
+        message: "PIN must be 4-8 alphanumeric characters",
+      });
+    }
+  }
 
   let pasteId;
   let attempts = 0;
   do {
     pasteId = generateId();
-    if (!kv.get(`paste:${pasteId}:createdAt`)) break;
+    if (!kv.hget(`paste:${pasteId}`, "createdAt")) break;
     attempts++;
   } while (attempts < 5);
 
@@ -126,135 +156,246 @@ async function handleCreate(req, res) {
   const adminToken = generateToken();
   const viewerToken = generateToken();
   const now = Date.now();
+  const ttlKey = TTL_MAP[ttl] ? ttl : "24h";
+  const ttlMs = TTL_MAP[ttlKey];
 
-  kv.set(`paste:${pasteId}:content`, content || "");
-  kv.set(`paste:${pasteId}:pin`, pin || null);
-  kv.set(`paste:${pasteId}:adminToken`, adminToken);
-  kv.set(`paste:${pasteId}:viewerToken`, viewerToken);
-  kv.set(`paste:${pasteId}:createdAt`, now);
-  kv.set(`paste:${pasteId}:allowComments`, String(allowComments === true || allowComments === "true"));
-  kv.set(`paste:${pasteId}:comments`, JSON.stringify([]));
+  kv.hset(`paste:${pasteId}`, {
+    content: textContent,
+    pin: pin || "",
+    adminToken,
+    viewerToken,
+    createdAt: now,
+    allowComments:
+      allowComments === true || allowComments === "true" ? "true" : "false",
+    comments: "[]",
+    ttl: ttlKey,
+    burnAfterReading:
+      burnAfterReading === true || burnAfterReading === "true"
+        ? "true"
+        : "false",
+    burned: "false",
+  });
 
-  sendJson(res, 200, { pasteId, adminToken, viewerToken, hasPin: !!pin, createdAt: now });
+  // Set auto-expiry
+  kv.expire(`paste:${pasteId}`, ttlMs / 1000);
+
+  sendJson(res, 200, {
+    pasteId,
+    adminToken,
+    viewerToken,
+    hasPin: !!(pin && pin !== ""),
+    createdAt: now,
+    ttl: ttlKey,
+    burnAfterReading:
+      burnAfterReading === true || burnAfterReading === "true",
+  });
 }
 
 async function handleAuth(req, res) {
-  if (req.method !== "POST") return sendJson(res, 405, { message: "Method Not Allowed" });
+  if (req.method !== "POST")
+    return sendJson(res, 405, { message: "Method Not Allowed" });
 
   const { pin, pasteId } = await parseBody(req);
 
-  if (!pasteId) return sendJson(res, 400, { message: "Missing paste ID" });
+  if (!pasteId || typeof pasteId !== "string" || pasteId.length > 20)
+    return sendJson(res, 400, { message: "Invalid paste ID" });
 
-  const createdAt = kv.get(`paste:${pasteId}:createdAt`);
-  if (!createdAt) return sendJson(res, 404, { message: "Paste not found" });
+  if (!/^[a-zA-Z0-9]+$/.test(pasteId))
+    return sendJson(res, 400, { message: "Invalid paste ID format" });
 
-  const storedPin = kv.get(`paste:${pasteId}:pin`);
+  const paste = kv.hgetall(`paste:${pasteId}`);
+  if (!paste || !paste.createdAt)
+    return sendJson(res, 404, { message: "Paste not found" });
 
-  if (!storedPin) {
-    const viewerToken = kv.get(`paste:${pasteId}:viewerToken`);
-    return sendJson(res, 200, { message: "Success", token: viewerToken, role: "viewer" });
+  if (paste.burned === "true")
+    return sendJson(res, 410, { message: "This paste has been burned" });
+
+  if (!paste.pin || paste.pin === "") {
+    return sendJson(res, 200, {
+      message: "Success",
+      token: paste.viewerToken,
+      role: "viewer",
+    });
   }
 
-  if (pin === storedPin) {
-    const viewerToken = kv.get(`paste:${pasteId}:viewerToken`);
-    return sendJson(res, 200, { message: "Success", token: viewerToken, role: "viewer" });
+  // Timing-safe PIN comparison
+  if (pin) {
+    const pinBuf = Buffer.from(String(pin));
+    const storedBuf = Buffer.from(String(paste.pin));
+    if (pinBuf.length === storedBuf.length && crypto.timingSafeEqual(pinBuf, storedBuf)) {
+      return sendJson(res, 200, {
+        message: "Success",
+        token: paste.viewerToken,
+        role: "viewer",
+      });
+    }
   }
 
   sendJson(res, 401, { message: "Invalid PIN" });
 }
 
 function handleContent(req, res) {
-  if (req.method !== "GET") return sendJson(res, 405, { message: "Method Not Allowed" });
+  if (req.method !== "GET")
+    return sendJson(res, 405, { message: "Method Not Allowed" });
 
   const parsed = url.parse(req.url, true);
   const { id, token } = parsed.query;
 
-  if (!id) return sendJson(res, 400, { message: "Missing paste ID" });
+  if (!id || typeof id !== "string" || id.length > 20)
+    return sendJson(res, 400, { message: "Invalid paste ID" });
 
-  const createdAt = kv.get(`paste:${id}:createdAt`);
-  if (!createdAt) return sendJson(res, 404, { message: "Paste not found" });
+  if (!/^[a-zA-Z0-9]+$/.test(id))
+    return sendJson(res, 400, { message: "Invalid paste ID format" });
 
-  const adminToken = kv.get(`paste:${id}:adminToken`);
-  const viewerToken = kv.get(`paste:${id}:viewerToken`);
-  const storedPin = kv.get(`paste:${id}:pin`);
+  const paste = kv.hgetall(`paste:${id}`);
+  if (!paste || !paste.createdAt)
+    return sendJson(res, 404, { message: "Paste not found" });
 
-  const isOpenAccess = !storedPin;
-  const isValidToken = token === adminToken || token === viewerToken;
+  if (paste.burned === "true")
+    return sendJson(res, 410, {
+      message: "This paste has been burned after reading",
+    });
+
+  const isOpenAccess = !paste.pin || paste.pin === "";
+  const isValidToken = token === paste.adminToken || token === paste.viewerToken;
+  const isAdmin = token === paste.adminToken;
 
   if (!isOpenAccess && !isValidToken) {
     return sendJson(res, 401, { message: "Unauthorized" });
   }
 
+  // Viewer tracking (lightweight, no KEYS scan)
   if (token) {
-    kv.set(`paste:${id}:viewers:${token}`, Date.now());
+    kv.set(`v:${id}:${token.slice(0, 8)}`, "1", { ex: 30 });
   }
 
-  let viewerCount = 0;
-  const now = Date.now();
-  for (const k of Object.keys(store)) {
-    if (k.startsWith(`paste:${id}:viewers:`)) {
-      if (now - store[k] > 10000) {
-        delete store[k];
-      } else {
-        viewerCount++;
-      }
+  const viewerCount = 0; // Removed expensive KEYS scan
+
+  // Burn after reading on first non-admin read
+  if (paste.burnAfterReading === "true" && !isAdmin) {
+    kv.hset(`paste:${id}`, { burned: "true" });
+  }
+
+  const allowComments = paste.allowComments === "true";
+  let comments = [];
+  if (allowComments && paste.comments) {
+    try {
+      comments =
+        typeof paste.comments === "string"
+          ? JSON.parse(paste.comments)
+          : paste.comments;
+    } catch (e) {
+      comments = [];
     }
   }
 
-  const allowCommentsStr = kv.get(`paste:${id}:allowComments`);
-  const allowComments = allowCommentsStr === "true" || allowCommentsStr === true;
-  let comments = [];
-  if (allowComments) {
-    const rawComments = kv.get(`paste:${id}:comments`);
-    try { comments = rawComments ? JSON.parse(rawComments) : []; } catch(e) {}
-  }
-
-  const content = kv.get(`paste:${id}:content`) || "";
-  sendJson(res, 200, { content, allowComments, comments, viewerCount });
+  sendJson(res, 200, {
+    content: paste.content || "",
+    allowComments,
+    comments,
+    viewerCount,
+    ttl: paste.ttl || "24h",
+    burnAfterReading: paste.burnAfterReading === "true",
+    createdAt: paste.createdAt,
+  });
 }
 
 async function handleUpdate(req, res) {
-  if (req.method !== "POST") return sendJson(res, 405, { message: "Method Not Allowed" });
+  if (req.method !== "POST")
+    return sendJson(res, 405, { message: "Method Not Allowed" });
 
   const { content, pasteId, adminToken } = await parseBody(req);
 
-  if (!pasteId) return sendJson(res, 400, { message: "Missing paste ID" });
+  if (!pasteId || typeof pasteId !== "string" || pasteId.length > 20)
+    return sendJson(res, 400, { message: "Invalid paste ID" });
 
-  const storedToken = kv.get(`paste:${pasteId}:adminToken`);
-  if (!storedToken) return sendJson(res, 404, { message: "Paste not found" });
-  if (adminToken !== storedToken) return sendJson(res, 401, { message: "Unauthorized" });
+  const textContent = typeof content === "string" ? content : "";
+  if (textContent.length > 100000) {
+    return sendJson(res, 400, { message: "Content too large (max 100 KB)" });
+  }
 
-  kv.set(`paste:${pasteId}:content`, content || "");
+  const storedToken = kv.hget(`paste:${pasteId}`, "adminToken");
+  if (!storedToken)
+    return sendJson(res, 404, { message: "Paste not found" });
+  if (adminToken !== storedToken)
+    return sendJson(res, 401, { message: "Unauthorized" });
+
+  kv.hset(`paste:${pasteId}`, { content: textContent });
   sendJson(res, 200, { message: "Saved successfully" });
 }
 
 async function handleComment(req, res) {
-  if (req.method !== "POST") return sendJson(res, 405, { message: "Method Not Allowed" });
+  if (req.method !== "POST")
+    return sendJson(res, 405, { message: "Method Not Allowed" });
 
   const { pasteId, token, text } = await parseBody(req);
 
-  if (!pasteId || !token || !text) return sendJson(res, 400, { message: "Missing data" });
+  if (!pasteId || !token || !text)
+    return sendJson(res, 400, { message: "Missing data" });
 
-  const adminToken = kv.get(`paste:${pasteId}:adminToken`);
-  const viewerToken = kv.get(`paste:${pasteId}:viewerToken`);
+  if (typeof text !== "string" || text.trim().length === 0)
+    return sendJson(res, 400, { message: "Comment cannot be empty" });
+
+  if (text.length > 500)
+    return sendJson(res, 400, {
+      message: "Comment too long (max 500 characters)",
+    });
+
+  const paste = kv.hgetall(`paste:${pasteId}`);
+  if (!paste || !paste.createdAt)
+    return sendJson(res, 404, { message: "Paste not found" });
 
   let author = null;
-  if (token === adminToken) author = "admin";
-  else if (token === viewerToken) author = "viewer";
+  if (token === paste.adminToken) author = "admin";
+  else if (token === paste.viewerToken) author = "viewer";
   else return sendJson(res, 401, { message: "Unauthorized" });
 
-  const allowCommentsStr = kv.get(`paste:${pasteId}:allowComments`);
-  const allowComments = allowCommentsStr === "true" || allowCommentsStr === true;
-  if (!allowComments) return sendJson(res, 403, { message: "Comments disabled" });
+  if (paste.allowComments !== "true")
+    return sendJson(res, 403, { message: "Comments disabled" });
 
   let comments = [];
-  const rawComments = kv.get(`paste:${pasteId}:comments`);
-  try { comments = rawComments ? JSON.parse(rawComments) : []; } catch(e) {}
+  try {
+    comments =
+      typeof paste.comments === "string"
+        ? JSON.parse(paste.comments)
+        : paste.comments || [];
+  } catch (e) {
+    comments = [];
+  }
 
-  comments.push({ author, text, timestamp: Date.now() });
-  kv.set(`paste:${pasteId}:comments`, JSON.stringify(comments));
+  if (comments.length >= 50)
+    return sendJson(res, 400, { message: "Maximum comments reached (50)" });
 
+  comments.push({
+    author,
+    text: text.trim(),
+    timestamp: Date.now(),
+  });
+
+  kv.hset(`paste:${pasteId}`, { comments: JSON.stringify(comments) });
   sendJson(res, 200, { message: "Comment added" });
+}
+
+async function handleDelete(req, res) {
+  if (req.method !== "POST")
+    return sendJson(res, 405, { message: "Method Not Allowed" });
+
+  const { pasteId, adminToken } = await parseBody(req);
+
+  if (!pasteId || typeof pasteId !== "string" || pasteId.length > 20)
+    return sendJson(res, 400, { message: "Invalid paste ID" });
+
+  if (!adminToken)
+    return sendJson(res, 400, { message: "Missing admin token" });
+
+  const storedToken = kv.hget(`paste:${pasteId}`, "adminToken");
+  if (!storedToken)
+    return sendJson(res, 404, { message: "Paste not found" });
+  if (adminToken !== storedToken)
+    return sendJson(res, 401, { message: "Unauthorized" });
+
+  kv.del(`paste:${pasteId}`);
+  sendJson(res, 200, { message: "Paste deleted" });
 }
 
 // ==================== SERVER ====================
@@ -282,6 +423,7 @@ const server = http.createServer(async (req, res) => {
     if (pathname === "/api/content") return handleContent(req, res);
     if (pathname === "/api/update") return await handleUpdate(req, res);
     if (pathname === "/api/comment") return await handleComment(req, res);
+    if (pathname === "/api/delete") return await handleDelete(req, res);
   } catch (err) {
     console.error("API Error:", err);
     return sendJson(res, 500, { message: "Internal Server Error" });
@@ -292,7 +434,10 @@ const server = http.createServer(async (req, res) => {
     return serveStatic(res, path.join(PUBLIC_DIR, "view.html"));
   }
 
-  let filePath = path.join(PUBLIC_DIR, pathname === "/" ? "index.html" : pathname);
+  let filePath = path.join(
+    PUBLIC_DIR,
+    pathname === "/" ? "index.html" : pathname
+  );
 
   // Security: prevent directory traversal
   if (!filePath.startsWith(PUBLIC_DIR)) {

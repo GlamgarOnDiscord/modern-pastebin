@@ -26,11 +26,19 @@
 
 ---
 
-## 🆕 What's New
+## 🆕 What's New — v2.0
 
-- **Quick Access:** A discreet icon in the top right of the homepage allows you to quickly jump to any paste ID or URL.
-- **Interactive Comments:** Authors can now enable comments on their pastes. Both viewers and admins can discuss in real-time.
-- **Live Viewer Count:** See exactly how many people are currently looking at your code with the real-time active viewers badge.
+<table>
+<tr><td>🔥</td><td><b>Burn After Reading</b></td><td>Self-destructing pastes that vanish after the first view</td></tr>
+<tr><td>⏱️</td><td><b>Custom TTL</b></td><td>Choose expiration: 1 hour, 6 hours, 24 hours, or 7 days</td></tr>
+<tr><td>🎨</td><td><b>Syntax Highlighting</b></td><td>20+ languages via highlight.js with auto-detection</td></tr>
+<tr><td>📝</td><td><b>Markdown Preview</b></td><td>Full GFM rendering with code blocks, tables, blockquotes</td></tr>
+<tr><td>📥</td><td><b>Download</b></td><td>One-click download of paste content as <code>.txt</code></td></tr>
+<tr><td>🔢</td><td><b>Line Numbers</b></td><td>Toggleable line numbers in raw and syntax views</td></tr>
+<tr><td>🗑️</td><td><b>Admin Delete</b></td><td>Permanently delete your paste from the editor</td></tr>
+<tr><td>🔒</td><td><b>Security Hardening</b></td><td>Crypto tokens, timing-safe PIN, XSS protection, input validation</td></tr>
+<tr><td>⚡</td><td><b>85% fewer DB calls</b></td><td>Unified Redis Hash storage — from 7 keys to 1 per paste</td></tr>
+</table>
 
 ---
 
@@ -48,13 +56,15 @@ The system is built upon a high-performance **Vercel Serverless** backend, utili
 modern-pastebin/
 ├── public/                 ← Frontend assets
 │   ├── index.html          ← Compose / Editor view
-│   ├── view.html           ← Read-only Viewer
+│   ├── view.html           ← Rich Viewer (Raw + Syntax + Markdown)
 │   └── style.css           ← Premium Design tokens
 ├── api/                    ← Serverless Backend
-│   ├── create.js           ← POST new pastes
-│   ├── content.js          ← GET paste content
-│   ├── update.js           ← PUT paste updates
-│   └── auth.js             ← PIN validation
+│   ├── create.js           ← POST new pastes (TTL, burn, PIN)
+│   ├── content.js          ← GET paste content (single HGETALL)
+│   ├── update.js           ← POST paste updates
+│   ├── auth.js             ← PIN validation (timing-safe)
+│   ├── comment.js          ← POST comments (rate-limited)
+│   └── delete.js           ← POST admin delete
 └── server.js               ← Local Node.js development server
 ```
 
@@ -65,14 +75,14 @@ User Browser
      │
      ▼
 ┌─────────────────────┐
-│  Vercel Serverless  │  Node.js API Routes
-│  Edge Network       │  JWT-style 48-char tokens
-└──────────┬──────────┘
-           │  Sub-millisecond latency
+│  Vercel Serverless   │  Node.js API Routes
+│  Edge Network        │  UUID-based crypto tokens
+└──────────┬───────────┘
+           │  1-2 requests per operation
            ▼
 ┌─────────────────────┐
-│  Vercel KV (Redis)  │  Ephemeral Storage
-│  Upstash            │  Key-Value JSON Payloads
+│  Upstash Redis       │  Single Hash per paste
+│  (Vercel KV)         │  Auto-expiry via TTL
 └─────────────────────┘
 ```
 
@@ -89,15 +99,37 @@ User Browser
 
 ### 🔒 Security & Privacy
 
-- **PIN Protection** — Optionally lock any paste with an 8-character code. Auth happens strictly server-side.
-- **Admin Tokens** — Creation yields a unique, unguessable 48-character token for editing rights.
-- **View-Only Separation** — Distinct URLs for readers and the original author.
-- **Zero Tracking** — No analytics, no cookies, no data harvesting.
+| Layer | Protection |
+|---|---|
+| **Tokens** | `crypto.randomUUID()` — cryptographically secure, unguessable |
+| **PIN** | Timing-safe comparison via `crypto.timingSafeEqual` — prevents brute-force timing attacks |
+| **XSS** | All user content rendered via `textContent` (DOM API) — zero `innerHTML` on untrusted data |
+| **Markdown** | DOM sanitization strips `<script>`, `<iframe>`, `on*` handlers, and `javascript:` URLs |
+| **Input** | Server-side validation: 100KB content limit, 4-8 char alphanumeric PIN, 500 char comments, 50 max |
+| **Headers** | `X-Content-Type-Options`, `X-Frame-Options: DENY`, `X-XSS-Protection`, `Referrer-Policy` |
+| **IDs** | Alphanumeric-only validation prevents Redis key injection |
+| **Zero Tracking** | No analytics, no cookies, no data harvesting |
 
-### ⚡ Performance
+### ⚡ Performance & Optimization
 
-- **Live Sync Polling** — Viewers auto-update when the author makes changes, dynamically adjusting polling rates based on tab visibility to save resources.
-- **Vanilla Stack** — Zero frontend framework overhead. Lightning-fast HTML/CSS/JS parses instantly.
+| Metric | Before | After |
+|---|---|---|
+| KV calls per `create` | 8 (7 SET + 1 GET) | **2** (1 HSET + 1 EXPIRE) |
+| KV calls per `content` | 9+ (7 GET + KEYS) | **1** (1 HGETALL) |
+| KV calls per `auth` | 4 GET | **1** (1 HGETALL) |
+| Editor polling | 2 seconds | **5 seconds** (adaptive: 15s when hidden) |
+| Auto-save debounce | 400ms | **800ms** |
+| Viewer polling | 10s / 30s idle | 10s / 30s idle |
+
+### 🖥️ Viewer Modes
+
+Switch between three rendering modes instantly:
+
+| Mode | Description |
+|---|---|
+| **Raw** | Plain text with optional line numbers |
+| **Syntax** | highlight.js with 20+ language support and auto-detection |
+| **Markdown** | Full GFM rendering (headings, code blocks, tables, blockquotes, images) |
 
 ---
 
@@ -132,7 +164,7 @@ The repository is pre-configured for global edge deployment via Vercel.
 
 ---
 
-## Screenshoot
+## Screenshot
 
 <img src="./public/dash.jpg" alt="Scribble App Preview" width="800" style="border-radius: 12px;" />
 

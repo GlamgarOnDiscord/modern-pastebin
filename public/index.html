@@ -72,22 +72,44 @@
           <div class="action-bar" style="margin-top:10px;">
             <div class="action-bar-left">
               <span class="char-badge" id="charCount">0</span>
+
+              <!-- PIN toggle -->
               <button type="button" class="pin-btn" onclick="togglePin()" id="pinBtn">
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
                 <span id="pinBtnText">PIN</span>
               </button>
+
+              <!-- Comments toggle -->
               <label class="comment-toggle">
                 <input type="checkbox" id="allowCommentsCheck">
                 <span class="comment-toggle-label">Comments</span>
               </label>
+
+              <!-- Burn After Reading toggle -->
+              <label class="comment-toggle" title="Auto-delete after first view">
+                <input type="checkbox" id="burnCheck">
+                <span class="comment-toggle-label">🔥 Burn</span>
+              </label>
+
               <div class="pin-field" id="pinField">
                 <input type="text" id="pinInput" placeholder="PIN" maxlength="8" autocomplete="off" />
               </div>
             </div>
-            <button id="createBtn" class="cta-btn" onclick="createPaste()">
-              <span class="btn-label">Create</span>
-              <span class="spinner"></span>
-            </button>
+
+            <div class="action-bar-right">
+              <!-- TTL selector -->
+              <select id="ttlSelect" class="ttl-select" title="Expiration time">
+                <option value="1h">1 hour</option>
+                <option value="6h">6 hours</option>
+                <option value="24h" selected>24 hours</option>
+                <option value="7d">7 days</option>
+              </select>
+
+              <button id="createBtn" class="cta-btn" onclick="createPaste()">
+                <span class="btn-label">Create</span>
+                <span class="spinner"></span>
+              </button>
+            </div>
           </div>
         </div>
 
@@ -122,13 +144,17 @@
             </div>
           </div>
 
+          <div id="burnNotice" class="burn-notice" style="display:none;">
+            <span>🔥</span> This paste will self-destruct after the first view.
+          </div>
+
           <div class="result-actions">
             <button class="cta-btn" onclick="goToEditor()" style="flex:1;">Open Editor</button>
             <button class="ghost-btn" onclick="resetCreate()">New paste</button>
           </div>
         </div>
 
-        <footer class="foot"><p>Pastes expire in 24h<span class="foot-sep"></span><a href="/">Scribble</a></p></footer>
+        <footer class="foot"><p>Auto-expires based on your selection<span class="foot-sep"></span><a href="/">Scribble</a></p></footer>
       </div>
     </div>
 
@@ -151,6 +177,10 @@
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
             <span>Share</span>
           </button>
+          <button class="tool-btn tool-btn-danger" onclick="deletePaste()" id="deleteBtn" title="Delete this paste permanently">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+            <span>Delete</span>
+          </button>
           <div class="viewers-badge" id="editorViewers" style="display:none;" title="Connected Viewers">
             👁 <span id="editorViewersCount">0</span>
           </div>
@@ -168,19 +198,19 @@
           </div>
           <div class="comments-list" id="editorCommentsList"></div>
           <div class="comments-input-area">
-            <input type="text" id="editorCommentInput" placeholder="Write a comment..." onkeydown="if(event.key==='Enter') postEditorComment()">
+            <input type="text" id="editorCommentInput" maxlength="500" placeholder="Write a comment..." onkeydown="if(event.key==='Enter') postEditorComment()">
             <button class="cta-btn" onclick="postEditorComment()" style="padding: 6px 12px; font-size:0.75rem;">Send</button>
           </div>
         </div>
 
-        <footer class="foot"><p>Auto-saves as you type<span class="foot-sep"></span>Expires in 24h</p></footer>
+        <footer class="foot"><p>Auto-saves as you type<span class="foot-sep"></span>Expires based on TTL</p></footer>
       </div>
     </div>
 
     <script>
       let pasteId = null, adminToken = null, saveTimer = null, pinOpen = false;
 
-      // Toast
+      // ── Toast ──
       let tt;
       function toast(m) {
         const t = document.getElementById("toast");
@@ -190,7 +220,14 @@
         tt = setTimeout(() => t.classList.remove("visible"), 2200);
       }
 
-      // Count
+      // ── Sanitize (client-side XSS prevention) ──
+      function escapeHtml(str) {
+        const div = document.createElement("div");
+        div.textContent = str;
+        return div.innerHTML;
+      }
+
+      // ── Count ──
       function updateCount() {
         document.getElementById("charCount").textContent = document.getElementById("initialContent").value.length.toLocaleString();
       }
@@ -198,7 +235,7 @@
         document.getElementById("editorCharCount").textContent = document.getElementById("editor").value.length.toLocaleString() + " chars";
       }
 
-      // PIN
+      // ── PIN ──
       function togglePin() {
         pinOpen = !pinOpen;
         document.getElementById("pinField").classList.toggle("open", pinOpen);
@@ -206,7 +243,7 @@
         if (pinOpen) document.getElementById("pinInput").focus();
       }
 
-      // Init
+      // ── Init ──
       (function() {
         const p = new URLSearchParams(location.search);
         if (p.get("paste") && p.get("token")) {
@@ -218,7 +255,7 @@
         }
       })();
 
-      // View Modal
+      // ── View Modal ──
       function openViewModal() {
         document.getElementById("viewModalOverlay").style.display = "flex";
         setTimeout(() => document.getElementById("pasteCodeInput").focus(), 100);
@@ -236,17 +273,30 @@
         location.href = `/view?id=${id}`;
       });
 
-      // Create
+      // ── Create ──
       async function createPaste() {
         const btn = document.getElementById("createBtn");
         const content = document.getElementById("initialContent").value;
         const pin = document.getElementById("pinInput").value.trim();
         const allowComments = document.getElementById("allowCommentsCheck").checked;
+        const burnAfterReading = document.getElementById("burnCheck").checked;
+        const ttl = document.getElementById("ttlSelect").value;
+
+        // Client-side validation
+        if (content.length > 100000) {
+          toast("Content too large (max 100 KB)");
+          return;
+        }
+        if (pin && (pin.length < 4 || pin.length > 8 || !/^[a-zA-Z0-9]+$/.test(pin))) {
+          toast("PIN must be 4-8 alphanumeric chars");
+          return;
+        }
+
         btn.classList.add("loading"); btn.disabled = true;
         try {
           const r = await fetch("/api/create", {
             method: "POST", headers: {"Content-Type":"application/json"},
-            body: JSON.stringify({ content, pin: pin || null, allowComments })
+            body: JSON.stringify({ content, pin: pin || null, allowComments, burnAfterReading, ttl })
           });
           if (!r.ok) { toast((await r.json()).message || "Error"); btn.classList.remove("loading"); btn.disabled = false; return; }
           const d = await r.json();
@@ -256,6 +306,11 @@
           document.getElementById("adminUrl").textContent = `${o}/?paste=${d.pasteId}&token=${d.adminToken}`;
           document.getElementById("composeSection").style.display = "none";
           document.getElementById("resultPanel").style.display = "";
+
+          // Show burn notice if applicable
+          if (d.burnAfterReading) {
+            document.getElementById("burnNotice").style.display = "flex";
+          }
         } catch(e) { console.error(e); toast("Network error"); }
         btn.classList.remove("loading"); btn.disabled = false;
       }
@@ -266,6 +321,9 @@
         document.getElementById("initialContent").value = "";
         document.getElementById("pinInput").value = "";
         document.getElementById("allowCommentsCheck").checked = false;
+        document.getElementById("burnCheck").checked = false;
+        document.getElementById("ttlSelect").value = "24h";
+        document.getElementById("burnNotice").style.display = "none";
         pinOpen = false;
         document.getElementById("pinField").classList.remove("open");
         document.getElementById("pinBtn").classList.remove("active");
@@ -275,8 +333,21 @@
 
       function goToEditor() { location.href = `/?paste=${pasteId}&token=${adminToken}`; }
 
-      // Editor
+      // ── Editor ──
       let editorPoll = null;
+      const EDITOR_ACTIVE_MS = 5000;  // 5s when tab active (was 2s)
+      const EDITOR_IDLE_MS = 15000;   // 15s when tab hidden
+      let editorPollMs = EDITOR_ACTIVE_MS;
+
+      // Adaptive polling for editor
+      document.addEventListener('visibilitychange', () => {
+        if (editorPoll) {
+          clearInterval(editorPoll);
+          editorPollMs = document.hidden ? EDITOR_IDLE_MS : EDITOR_ACTIVE_MS;
+          editorPoll = setInterval(pollEditorContent, editorPollMs);
+        }
+      });
+
       async function loadContent() {
         try {
           const r = await fetch(`/api/content?id=${pasteId}&token=${adminToken}`);
@@ -285,7 +356,7 @@
             document.getElementById("editor").value = d.content || ""; 
             updateEditorCount(); 
             updateEditorUI(d);
-            if (!editorPoll) editorPoll = setInterval(pollEditorContent, 2000);
+            if (!editorPoll) editorPoll = setInterval(pollEditorContent, editorPollMs);
           }
         } catch(e) { console.error(e); }
       }
@@ -310,6 +381,7 @@
         }
       }
 
+      // ── Comments (XSS-safe rendering) ──
       function renderComments(comments, listId) {
         const list = document.getElementById(listId);
         list.innerHTML = "";
@@ -317,8 +389,27 @@
           const item = document.createElement("div");
           item.className = "comment-item";
           const d = new Date(c.timestamp).toLocaleTimeString();
-          const badge = c.author === "admin" ? `<span class="badge-sm badge-admin">admin</span>` : `<span class="badge-sm badge-viewer">viewer</span>`;
-          item.innerHTML = `<div class="comment-meta">${badge} <span>${d}</span></div><div class="comment-text">${c.text}</div>`;
+
+          const meta = document.createElement("div");
+          meta.className = "comment-meta";
+
+          const badge = document.createElement("span");
+          badge.className = c.author === "admin" ? "badge-sm badge-admin" : "badge-sm badge-viewer";
+          badge.textContent = c.author;
+
+          const time = document.createElement("span");
+          time.textContent = d;
+
+          meta.appendChild(badge);
+          meta.appendChild(document.createTextNode(" "));
+          meta.appendChild(time);
+
+          const text = document.createElement("div");
+          text.className = "comment-text";
+          text.textContent = c.text; // textContent = XSS safe
+
+          item.appendChild(meta);
+          item.appendChild(text);
           list.appendChild(item);
         });
         list.scrollTop = list.scrollHeight;
@@ -328,16 +419,38 @@
         const input = document.getElementById("editorCommentInput");
         const text = input.value.trim();
         if (!text) return;
+        if (text.length > 500) { toast("Comment too long (max 500)"); return; }
         input.value = "";
         try {
-          await fetch("/api/comment", {
+          const r = await fetch("/api/comment", {
             method: "POST", headers: {"Content-Type":"application/json"},
             body: JSON.stringify({ pasteId, token: adminToken, text })
           });
-          pollEditorContent();
+          if (r.ok) { pollEditorContent(); }
+          else { const d = await r.json(); toast(d.message || "Error"); }
         } catch(e) {}
       }
 
+      // ── Admin Delete ──
+      async function deletePaste() {
+        if (!confirm("Permanently delete this paste? This cannot be undone.")) return;
+        try {
+          const r = await fetch("/api/delete", {
+            method: "POST", headers: {"Content-Type":"application/json"},
+            body: JSON.stringify({ pasteId, adminToken })
+          });
+          if (r.ok) {
+            toast("Paste deleted");
+            if (editorPoll) clearInterval(editorPoll);
+            setTimeout(() => location.href = "/", 1000);
+          } else {
+            const d = await r.json();
+            toast(d.message || "Delete failed");
+          }
+        } catch(e) { toast("Network error"); }
+      }
+
+      // ── Status ──
       function setStatus(s) {
         const b = document.getElementById("statusBadge"), t = document.getElementById("statusText");
         if (!b) return;
@@ -358,11 +471,11 @@
 
       document.getElementById("editor").addEventListener("input", () => {
         setStatus("saving"); clearTimeout(saveTimer);
-        saveTimer = setTimeout(saveContent, 400);
+        saveTimer = setTimeout(saveContent, 800); // 800ms debounce (was 400ms)
         updateEditorCount();
       });
 
-      // Copy
+      // ── Copy ──
       function copyRow(codeId, rowId) {
         navigator.clipboard.writeText(document.getElementById(codeId).textContent).then(() => {
           const row = document.getElementById(rowId);
@@ -379,7 +492,7 @@
         });
       }
 
-      // Ctrl+Enter
+      // ── Ctrl+Enter ──
       document.addEventListener("keydown", e => {
         if ((e.ctrlKey || e.metaKey) && e.key === "Enter" && document.getElementById("createView").style.display !== "none") createPaste();
       });
