@@ -26,7 +26,8 @@
   <body>
 
     <div id="toast" class="toast">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+      <svg id="toastIconOk" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+      <svg id="toastIconErr" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="display:none;"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
       <span id="toastText"></span>
     </div>
 
@@ -316,13 +317,12 @@
       function onFileSelected() {
         const file = document.getElementById('fileInput').files[0];
         if (!file) return;
-        if (file.size > MAX_FILE_SIZE) { toast('File too large (max 4 MB)'); document.getElementById('fileInput').value = ''; return; }
+        if (file.size > MAX_FILE_SIZE) { pendingFile = null; toast('File too large (max 4 MB)', 'error'); document.getElementById('fileInput').value = ''; return; }
         pendingFile = file;
         document.getElementById('fileChipName').textContent = file.name;
         document.getElementById('fileChipSize').textContent = formatBytes(file.size);
         document.getElementById('fileChip').style.display = 'inline-flex';
-        document.getElementById('fileAttachBtn').classList.add('has-file');
-        document.getElementById('fileAttachLabel').textContent = '1 file';
+        document.getElementById('fileAttachBtn').style.display = 'none';
       }
 
       function removeFile(e) {
@@ -330,8 +330,7 @@
         pendingFile = null;
         document.getElementById('fileInput').value = '';
         document.getElementById('fileChip').style.display = 'none';
-        document.getElementById('fileAttachBtn').classList.remove('has-file');
-        document.getElementById('fileAttachLabel').textContent = 'Attach';
+        document.getElementById('fileAttachBtn').style.display = '';
       }
 
       async function uploadFile(pid, aToken, file) {
@@ -344,7 +343,7 @@
           method: 'PUT', body: file,
           headers: { 'Content-Type': mime },
         });
-        if (!r.ok) { const d = await r.json(); toast(d.message || 'Upload failed'); return null; }
+        if (!r.ok) { const d = await r.json(); toast(d.message || 'Upload failed', 'error'); return null; }
         return await r.json();
       }
 
@@ -363,7 +362,7 @@
         const input = document.getElementById('editorFileInput').files[0]
           || document.getElementById('editorFileInput2').files[0];
         if (!input) return;
-        if (input.size > MAX_FILE_SIZE) { toast('File too large (max 4 MB)'); return; }
+        if (input.size > MAX_FILE_SIZE) { toast('File too large (max 4 MB)', 'error'); return; }
         if (!pasteId || !adminToken) return;
         document.getElementById('editorUploadProgress').style.display = 'inline-flex';
         const result = await uploadFile(pasteId, adminToken, input);
@@ -372,7 +371,7 @@
           showEditorFile(result.fileName, result.fileSize);
           toast('File attached');
         } else {
-          toast('Upload failed');
+          toast('Upload failed', 'error');
         }
       }
 
@@ -385,20 +384,19 @@
 
       // ── Toast ──
       let tt;
-      function toast(m) {
+      function toast(m, type) {
         const t = document.getElementById("toast");
+        const isErr = type === 'error';
         document.getElementById("toastText").textContent = m;
+        document.getElementById("toastIconOk").style.display = isErr ? 'none' : '';
+        document.getElementById("toastIconErr").style.display = isErr ? '' : 'none';
+        t.classList.toggle("error", isErr);
         t.classList.add("visible");
         clearTimeout(tt);
         tt = setTimeout(() => t.classList.remove("visible"), 2200);
       }
 
       // ── Sanitize (client-side XSS prevention) ──
-      function escapeHtml(str) {
-        const div = document.createElement("div");
-        div.textContent = str;
-        return div.innerHTML;
-      }
 
       // ── Count ──
       function updateCount() {
@@ -457,11 +455,11 @@
 
         // Client-side validation
         if (content.length > 100000) {
-          toast("Content too large (max 100 KB)");
+          toast("Content too large (max 100 KB)", 'error');
           return;
         }
         if (pin && (pin.length < 4 || pin.length > 8 || !/^[a-zA-Z0-9]+$/.test(pin))) {
-          toast("PIN must be 4-8 alphanumeric chars");
+          toast("PIN must be 4-8 alphanumeric chars", 'error');
           return;
         }
 
@@ -471,7 +469,7 @@
             method: "POST", headers: {"Content-Type":"application/json"},
             body: JSON.stringify({ content, pin: pin || null, allowComments, burnAfterReading, ttl })
           });
-          if (!r.ok) { toast((await r.json()).message || "Error"); btn.classList.remove("loading"); btn.disabled = false; return; }
+          if (!r.ok) { toast((await r.json()).message || "Error", 'error'); btn.classList.remove("loading"); btn.disabled = false; return; }
           const d = await r.json();
           pasteId = d.pasteId; adminToken = d.adminToken;
 
@@ -489,7 +487,7 @@
           if (d.burnAfterReading) {
             document.getElementById("burnNotice").style.display = "flex";
           }
-        } catch(e) { console.error(e); toast("Network error"); }
+        } catch(e) { console.error(e); toast("Network error", 'error'); }
         btn.classList.remove("loading"); btn.disabled = false;
       }
 
@@ -554,15 +552,18 @@
       }
 
       function updateEditorUI(d) {
-        if (d.viewerCount > 0) {
+        const vc = Math.max(0, d.viewerCount - 1);
+        if (vc > 0) {
           document.getElementById("editorViewers").style.display = "inline-flex";
-          document.getElementById("editorViewersCount").textContent = d.viewerCount;
+          document.getElementById("editorViewersCount").textContent = vc;
         } else {
           document.getElementById("editorViewers").style.display = "none";
         }
         if (d.allowComments) {
           document.getElementById("editorCommentsSection").style.display = "flex";
           renderComments(d.comments, "editorCommentsList");
+        } else {
+          document.getElementById("editorCommentsSection").style.display = "none";
         }
       }
 
@@ -604,7 +605,7 @@
         const input = document.getElementById("editorCommentInput");
         const text = input.value.trim();
         if (!text) return;
-        if (text.length > 500) { toast("Comment too long (max 500)"); return; }
+        if (text.length > 500) { toast("Comment too long (max 500)", 'error'); return; }
         input.value = "";
         try {
           const r = await fetch("/api/comment", {
@@ -612,7 +613,7 @@
             body: JSON.stringify({ pasteId, token: adminToken, text })
           });
           if (r.ok) { pollEditorContent(); }
-          else { const d = await r.json(); toast(d.message || "Error"); }
+          else { const d = await r.json(); toast(d.message || "Error", 'error'); }
         } catch(e) {}
       }
 
@@ -630,9 +631,9 @@
             setTimeout(() => location.href = "/", 1000);
           } else {
             const d = await r.json();
-            toast(d.message || "Delete failed");
+            toast(d.message || "Delete failed", 'error');
           }
-        } catch(e) { toast("Network error"); }
+        } catch(e) { toast("Network error", 'error'); }
       }
 
       // ── Status ──

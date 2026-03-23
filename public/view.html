@@ -30,7 +30,8 @@
 <body>
 
     <div id="toast" class="toast">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+      <svg id="toastIconOk" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+      <svg id="toastIconErr" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="display:none;"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
       <span id="toastText"></span>
     </div>
 
@@ -215,9 +216,13 @@
         const ACTIVE = 10000, IDLE = 30000;
 
         let tt;
-        function toast(m) {
+        function toast(m, type) {
             const t = document.getElementById("toast");
+            const isErr = type === 'error';
             document.getElementById("toastText").textContent = m;
+            document.getElementById("toastIconOk").style.display = isErr ? 'none' : '';
+            document.getElementById("toastIconErr").style.display = isErr ? '' : 'none';
+            t.classList.toggle("error", isErr);
             t.classList.add("visible"); clearTimeout(tt);
             tt = setTimeout(() => t.classList.remove("visible"), 2200);
         }
@@ -404,6 +409,8 @@
             if (d.allowComments) {
                 document.getElementById('commentsSection').style.display = 'flex';
                 renderComments(d.comments, 'commentsList');
+            } else {
+                document.getElementById('commentsSection').style.display = 'none';
             }
             if (d.hasFile) {
                 document.getElementById('viewFileName').textContent = d.fileName;
@@ -464,7 +471,7 @@
             const input = document.getElementById("commentInput");
             const text = input.value.trim();
             if (!text || !token) return;
-            if (text.length > 500) { toast("Comment too long (max 500)"); return; }
+            if (text.length > 500) { toast("Comment too long (max 500)", 'error'); return; }
             input.value = "";
             try {
                 const r = await fetch("/api/comment", {
@@ -472,8 +479,8 @@
                     body: JSON.stringify({ pasteId: id, token, text })
                 });
                 if (r.ok) fetchContent(token);
-                else { const d = await r.json(); toast(d.message || "Error"); }
-            } catch(e) {}
+                else { const d = await r.json(); input.value = text; toast(d.message || "Error", 'error'); }
+            } catch(e) { input.value = text; toast("Network error", 'error'); }
         }
 
         async function fetchContent(tk) {
@@ -504,7 +511,7 @@
                 const b = document.getElementById('copyBtn'), s = b.querySelector('span');
                 b.classList.add('copied'); s.textContent = 'Copied!'; toast('Copied');
                 setTimeout(() => { b.classList.remove('copied'); s.textContent = 'Copy'; }, 1500);
-            });
+            }).catch(() => toast('Copy failed', 'error'));
         }
     </script>
 </body>

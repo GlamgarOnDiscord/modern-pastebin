@@ -604,6 +604,8 @@ pre {
 }
 .toast.visible { opacity: 1; transform: translateX(-50%) translateY(0); }
 .toast svg { color: var(--success); flex-shrink: 0; }
+.toast.error { border-color: rgba(239,68,68,0.25); background: rgba(30,14,14,0.96); }
+.toast.error svg { color: var(--danger); }
 
 /* ==================== FOOTER ==================== */
 .foot {
@@ -658,7 +660,7 @@ pre {
 }
 
 /* Comment Toggle */
-.comment-toggle { display: inline-flex; align-items: center; gap: 5px; padding: 7px 12px; border-radius: var(--r-s); background: var(--surface-1); border: 1px solid var(--border); cursor: pointer; transition: all 150ms var(--ease); user-select: none; }
+.comment-toggle { display: inline-flex; align-items: center; gap: 5px; padding: 6px 10px; border-radius: var(--r-s); background: var(--surface-1); border: 1px solid var(--border); cursor: pointer; transition: all 150ms var(--ease); user-select: none; }
 .comment-toggle:hover { background: var(--surface-2); border-color: var(--border-hover); }
 .comment-toggle input { display: none; }
 .comment-toggle-label { color: var(--text-2); font-size: 0.76rem; font-weight: 500; transition: color 150ms; }
@@ -853,8 +855,7 @@ pre {
 .file-attach-row {
   display: flex;
   align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
+  gap: 6px;
 }
 
 .file-attach-btn {
@@ -886,14 +887,14 @@ pre {
 .file-chip {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   padding: 4px 8px;
-  background: var(--surface-1);
-  border: 1px solid var(--border);
+  background: var(--accent-subtle);
+  border: 1px solid rgba(16,185,129,0.2);
   border-radius: var(--r-pill);
   font-size: 0.72rem;
   color: var(--text-2);
-  max-width: 220px;
+  max-width: 160px;
 }
 .file-chip-name {
   overflow: hidden;
