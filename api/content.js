@@ -73,7 +73,7 @@ export default async function handler(req, res) {
       ttl: paste.ttl || "24h",
       burnAfterReading: paste.burnAfterReading === "true",
       createdAt: paste.createdAt,
-      blobUrl: paste.blobUrl || "",
+      hasFile: !!(paste.blobUrl),
       fileName: paste.fileName || "",
       fileSize: paste.fileSize ? parseInt(paste.fileSize, 10) : 0,
       fileType: paste.fileType || "",

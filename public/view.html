@@ -405,17 +405,18 @@
                 document.getElementById('commentsSection').style.display = 'flex';
                 renderComments(d.comments, 'commentsList');
             }
-            if (d.blobUrl) {
+            if (d.hasFile) {
                 document.getElementById('viewFileName').textContent = d.fileName;
                 document.getElementById('viewFileSub').textContent = formatBytes(d.fileSize) + (d.fileType ? ' · ' + d.fileType : '');
+                const dlUrl = `/api/download?pasteId=${id}${token ? '&token=' + encodeURIComponent(token) : ''}`;
                 const dlBtn = document.getElementById('fileDownloadBtn');
-                dlBtn.href = d.blobUrl;
+                dlBtn.href = dlUrl;
                 dlBtn.download = d.fileName;
                 document.getElementById('fileSection').style.display = '';
 
                 if (d.fileType && d.fileType.startsWith('image/') && d.fileType !== 'image/svg+xml') {
                     const img = document.getElementById('filePreviewImg');
-                    img.src = d.blobUrl;
+                    img.src = dlUrl;
                     img.alt = d.fileName;
                     document.getElementById('fileImagePreview').style.display = '';
                 }

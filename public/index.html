@@ -536,7 +536,7 @@
             updateEditorCount();
             updateEditorUI(d);
             // Show file attachment section (always visible in editor)
-            if (d.blobUrl) {
+            if (d.hasFile) {
               showEditorFile(d.fileName, d.fileSize);
             } else {
               document.getElementById('editorFileAttachSection').style.display = '';

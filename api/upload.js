@@ -104,7 +104,7 @@ export default async function handler(req, res) {
     }
 
     const blob = await put(`pastes/${pasteId}/${safeFileName}`, req, {
-      access: "public",
+      access: "private",
       contentType: fileType,
     });
 

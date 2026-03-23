@@ -293,7 +293,7 @@ function handleContent(req, res) {
     ttl: paste.ttl || "24h",
     burnAfterReading: paste.burnAfterReading === "true",
     createdAt: paste.createdAt,
-    blobUrl: paste.blobUrl || "",
+    hasFile: !!(paste.blobUrl),
     fileName: paste.fileName || "",
     fileSize: paste.fileSize ? parseInt(paste.fileSize, 10) : 0,
     fileType: paste.fileType || "",
@@ -463,33 +463,40 @@ async function handleUpload(req, res) {
 
   blobStore[pasteId] = { data, fileName: safeFileName, fileType };
   kv.hset(`paste:${pasteId}`, {
-    blobUrl: `/api/file?id=${pasteId}`,
+    blobUrl: `__local__:${pasteId}`,
     fileName: safeFileName,
     fileSize: String(data.length),
     fileType: fileType,
   });
 
   sendJson(res, 200, {
-    blobUrl: `/api/file?id=${pasteId}`,
     fileName: safeFileName,
     fileSize: data.length,
     fileType: fileType,
   });
 }
 
-function handleFile(req, res) {
+function handleDownload(req, res) {
   if (req.method !== "GET") return sendJson(res, 405, { message: "Method Not Allowed" });
   const parsed = url.parse(req.url, true);
-  const { id } = parsed.query;
-  if (!id || !blobStore[id]) {
-    res.writeHead(404, { "Content-Type": "text/plain" });
-    return res.end("Not Found");
-  }
-  const { data, fileType, fileName } = blobStore[id];
+  const { pasteId, token } = parsed.query;
+  if (!pasteId) { res.writeHead(400); return res.end("Missing pasteId"); }
+
+  const paste = kv.hgetall(`paste:${pasteId}`);
+  if (!paste || !paste.createdAt) { res.writeHead(404); return res.end("Not Found"); }
+  if (paste.burned === "true") { res.writeHead(410); return res.end("Burned"); }
+  if (!blobStore[pasteId]) { res.writeHead(404); return res.end("No file"); }
+
+  const isOpenAccess = !paste.pin || paste.pin === "";
+  const isValidToken = token === paste.adminToken || token === paste.viewerToken;
+  if (!isOpenAccess && !isValidToken) { res.writeHead(401); return res.end("Unauthorized"); }
+
+  const { data, fileType, fileName } = blobStore[pasteId];
   res.writeHead(200, {
     "Content-Type": fileType,
-    "Content-Disposition": `attachment; filename="${fileName}"`,
+    "Content-Disposition": `attachment; filename="${encodeURIComponent(fileName)}"`,
     "Content-Length": data.length,
+    "Cache-Control": "private, no-store",
   });
   res.end(data);
 }
@@ -544,7 +551,7 @@ const server = http.createServer(async (req, res) => {
     if (pathname === "/api/comment") return await handleComment(req, res);
     if (pathname === "/api/delete") return await handleDelete(req, res);
     if (pathname === "/api/upload") return await handleUpload(req, res);
-    if (pathname === "/api/file") return handleFile(req, res);
+    if (pathname === "/api/download") return handleDownload(req, res);
   } catch (err) {
     console.error("API Error:", err);
     return sendJson(res, 500, { message: "Internal Server Error" });
