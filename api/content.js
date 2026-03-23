@@ -41,28 +41,15 @@ export default async function handler(req, res) {
     // ── Auth check ──
     const isOpenAccess = !paste.pin || paste.pin === "";
     const isValidToken = token && (token === paste.adminToken || token === paste.viewerToken);
-    const isAdmin = token && token === paste.adminToken;
 
     if (!isOpenAccess && !isValidToken) {
       return res.status(401).json({ message: "Unauthorized" });
     }
 
-    // ── Viewer tracking: single INCR with TTL instead of keys() scan ──
-    // Use a single counter key per paste that auto-expires
-    // Each viewer "heartbeat" refreshes the counter
-    let viewerCount = 0;
-    if (token) {
-      // Set a per-viewer key with 30s TTL (1 DB call)
-      await kv.set(`v:${id}:${token.slice(0, 8)}`, "1", { ex: 30 });
-    }
+    const viewerCount = 0;
 
-    // Skip the expensive KEYS scan entirely.
-    // Instead, estimate from the paste's own metadata — or simply
-    // don't count viewers to save DB calls. This is a non-critical feature.
-    // If viewer count is really needed, use a single atomic counter instead.
-
-    // ── Burn after reading: mark as burned on first non-admin read ──
-    if (paste.burnAfterReading === "true" && !isAdmin) {
+    // ── Burn after reading: first read destroys the paste for everyone ──
+    if (paste.burnAfterReading === "true") {
       await kv.hset(`paste:${id}`, { burned: "true" });
     }
 
@@ -75,9 +62,6 @@ export default async function handler(req, res) {
         comments = [];
       }
     }
-
-    // Total DB calls: 1 (hgetall) + 1 if token (set viewer) + 1 if burn (hset)
-    // Best case: 1 call. Typical case: 2 calls. Worst case (burn): 3 calls.
 
     return res.status(200).json({
       content: paste.content || "",

@@ -26,14 +26,18 @@ export default async function handler(req, res) {
       return res.status(400).json({ message: "Content too large (max 100 KB)" });
     }
 
-    // ── Verify admin token via hash field ──
-    const storedToken = await kv.hget(`paste:${pasteId}`, "adminToken");
-    if (!storedToken) {
+    // ── Verify admin token and burned status ──
+    const paste = await kv.hgetall(`paste:${pasteId}`);
+    if (!paste || !paste.adminToken) {
       return res.status(404).json({ message: "Paste not found" });
     }
 
-    if (adminToken !== storedToken) {
+    if (adminToken !== paste.adminToken) {
       return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    if (paste.burned === "true") {
+      return res.status(410).json({ message: "This paste has been burned" });
     }
 
     // ── Update content in the hash ──

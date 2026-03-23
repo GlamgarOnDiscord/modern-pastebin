@@ -258,21 +258,15 @@ function handleContent(req, res) {
 
   const isOpenAccess = !paste.pin || paste.pin === "";
   const isValidToken = token === paste.adminToken || token === paste.viewerToken;
-  const isAdmin = token === paste.adminToken;
 
   if (!isOpenAccess && !isValidToken) {
     return sendJson(res, 401, { message: "Unauthorized" });
   }
 
-  // Viewer tracking (lightweight, no KEYS scan)
-  if (token) {
-    kv.set(`v:${id}:${token.slice(0, 8)}`, "1", { ex: 30 });
-  }
+  const viewerCount = 0;
 
-  const viewerCount = 0; // Removed expensive KEYS scan
-
-  // Burn after reading on first non-admin read
-  if (paste.burnAfterReading === "true" && !isAdmin) {
+  // Burn after reading: first read destroys the paste for everyone
+  if (paste.burnAfterReading === "true") {
     kv.hset(`paste:${id}`, { burned: "true" });
   }
 
@@ -314,11 +308,13 @@ async function handleUpdate(req, res) {
     return sendJson(res, 400, { message: "Content too large (max 100 KB)" });
   }
 
-  const storedToken = kv.hget(`paste:${pasteId}`, "adminToken");
-  if (!storedToken)
+  const storedPaste = kv.hgetall(`paste:${pasteId}`);
+  if (!storedPaste || !storedPaste.adminToken)
     return sendJson(res, 404, { message: "Paste not found" });
-  if (adminToken !== storedToken)
+  if (adminToken !== storedPaste.adminToken)
     return sendJson(res, 401, { message: "Unauthorized" });
+  if (storedPaste.burned === "true")
+    return sendJson(res, 410, { message: "This paste has been burned" });
 
   kv.hset(`paste:${pasteId}`, { content: textContent });
   sendJson(res, 200, { message: "Saved successfully" });
