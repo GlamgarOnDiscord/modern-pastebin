@@ -379,13 +379,36 @@ async function handleComment(req, res) {
 }
 
 const ALLOWED_UPLOAD_TYPES = new Set([
-  "text/plain", "text/html", "text/css", "text/javascript", "text/csv",
-  "text/markdown", "text/xml",
-  "application/json", "application/xml", "application/pdf",
-  "application/zip", "application/x-zip-compressed", "application/x-tar",
-  "application/gzip", "application/x-gzip",
-  "image/jpeg", "image/png", "image/gif", "image/webp", "image/svg+xml",
-  "image/bmp", "image/tiff",
+  // Generic text
+  "text/plain", "text/csv", "text/markdown", "text/xml", "text/yaml",
+  // Web
+  "text/html", "text/css", "text/javascript", "application/javascript",
+  "text/typescript", "application/typescript",
+  // Systems languages
+  "text/x-rust", "text/x-go", "text/x-c", "text/x-c++src",
+  "text/x-csharp", "text/x-java", "text/x-kotlin", "text/x-swift",
+  "text/x-objectivec", "text/x-zig", "text/x-nim",
+  // Scripting
+  "text/x-python", "text/x-ruby", "text/x-php", "text/x-lua",
+  "text/x-perl", "text/x-r", "text/x-shellscript", "text/x-powershell",
+  "application/dart",
+  // Functional / other
+  "text/x-elixir", "text/x-haskell", "text/x-erlang",
+  "text/x-clojure", "text/x-scala", "text/x-groovy",
+  // Frontend frameworks
+  "text/x-vue", "text/x-svelte",
+  // Data / config
+  "application/json", "application/xml", "application/toml",
+  "application/sql", "application/graphql",
+  "text/x-terraform",
+  // Archives
+  "application/pdf",
+  "application/zip", "application/x-zip-compressed",
+  "application/x-tar", "application/gzip", "application/x-gzip",
+  // Images
+  "image/jpeg", "image/png", "image/gif", "image/webp",
+  "image/svg+xml", "image/bmp", "image/tiff", "image/x-icon",
+  // Audio / video
   "audio/mpeg", "audio/wav", "audio/ogg", "audio/flac",
   "video/mp4", "video/webm", "video/ogg",
 ]);

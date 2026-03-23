@@ -253,6 +253,60 @@
 
       const MAX_FILE_SIZE = 4 * 1024 * 1024;
 
+      // Browser MIME types are unreliable for source files — resolve by extension
+      const EXT_MIME = {
+        // Web
+        js: 'text/javascript', mjs: 'text/javascript', cjs: 'text/javascript',
+        ts: 'text/typescript', tsx: 'text/typescript', jsx: 'text/javascript',
+        html: 'text/html', htm: 'text/html', xhtml: 'text/html',
+        css: 'text/css', scss: 'text/css', sass: 'text/css', less: 'text/css',
+        // Systems
+        rs: 'text/x-rust', go: 'text/x-go', c: 'text/x-c', h: 'text/x-c',
+        cpp: 'text/x-c++src', cc: 'text/x-c++src', cxx: 'text/x-c++src',
+        hpp: 'text/x-c++src', hxx: 'text/x-c++src',
+        cs: 'text/x-csharp', java: 'text/x-java', kt: 'text/x-kotlin',
+        swift: 'text/x-swift', m: 'text/x-objectivec', mm: 'text/x-objectivec',
+        // Scripting
+        py: 'text/x-python', rb: 'text/x-ruby', php: 'text/x-php',
+        lua: 'text/x-lua', pl: 'text/x-perl', r: 'text/x-r',
+        sh: 'text/x-shellscript', bash: 'text/x-shellscript',
+        zsh: 'text/x-shellscript', fish: 'text/x-shellscript',
+        ps1: 'text/x-powershell', psm1: 'text/x-powershell',
+        // Data / config
+        json: 'application/json', jsonc: 'application/json',
+        yaml: 'text/yaml', yml: 'text/yaml',
+        toml: 'application/toml', ini: 'text/plain', cfg: 'text/plain',
+        env: 'text/plain', xml: 'text/xml', svg: 'image/svg+xml',
+        csv: 'text/csv', tsv: 'text/csv',
+        sql: 'application/sql', graphql: 'application/graphql', gql: 'application/graphql',
+        // Docs / markup
+        md: 'text/markdown', mdx: 'text/markdown', rst: 'text/plain',
+        txt: 'text/plain', log: 'text/plain',
+        // Archives
+        zip: 'application/zip', gz: 'application/gzip', tar: 'application/x-tar',
+        // Images
+        png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg',
+        gif: 'image/gif', webp: 'image/webp', bmp: 'image/bmp', ico: 'image/x-icon',
+        // Docs
+        pdf: 'application/pdf',
+        // Build / misc
+        dockerfile: 'text/plain', makefile: 'text/plain', lock: 'text/plain',
+        prisma: 'text/plain', proto: 'text/plain', dart: 'application/dart',
+        ex: 'text/x-elixir', exs: 'text/x-elixir',
+        hs: 'text/x-haskell', lhs: 'text/x-haskell',
+        erl: 'text/x-erlang', clj: 'text/x-clojure', cljs: 'text/x-clojure',
+        scala: 'text/x-scala', groovy: 'text/x-groovy',
+        nim: 'text/x-nim', zig: 'text/x-zig',
+        vue: 'text/x-vue', svelte: 'text/x-svelte',
+        tf: 'text/x-terraform', hcl: 'text/x-terraform',
+      };
+
+      function getMimeType(file) {
+        if (file.type && file.type !== 'application/octet-stream') return file.type;
+        const ext = file.name.split('.').pop().toLowerCase();
+        return EXT_MIME[ext] || 'text/plain';
+      }
+
       function formatBytes(bytes) {
         if (bytes < 1024) return bytes + ' B';
         if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
@@ -281,16 +335,17 @@
       }
 
       async function uploadFile(pid, aToken, file) {
+        const mime = getMimeType(file);
         const params = new URLSearchParams({
           pasteId: pid, adminToken: aToken,
-          fileName: file.name, fileType: file.type || 'application/octet-stream',
-          fileSize: file.size,
+          fileName: file.name, fileType: mime, fileSize: file.size,
         });
         const r = await fetch(`/api/upload?${params}`, {
           method: 'PUT', body: file,
-          headers: { 'Content-Type': file.type || 'application/octet-stream' },
+          headers: { 'Content-Type': mime },
         });
-        return r.ok ? await r.json() : null;
+        if (!r.ok) { const d = await r.json(); toast(d.message || 'Upload failed'); return null; }
+        return await r.json();
       }
 
       async function deleteEditorFile() {
