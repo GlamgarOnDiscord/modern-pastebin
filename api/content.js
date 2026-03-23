@@ -1,4 +1,5 @@
 import { kv } from "@vercel/kv";
+import { del } from "@vercel/blob";
 
 function securityHeaders(res) {
   res.setHeader("X-Content-Type-Options", "nosniff");
@@ -51,6 +52,7 @@ export default async function handler(req, res) {
     // ── Burn after reading: first read destroys the paste for everyone ──
     if (paste.burnAfterReading === "true") {
       await kv.hset(`paste:${id}`, { burned: "true" });
+      if (paste.blobUrl) await del(paste.blobUrl).catch(() => {});
     }
 
     const allowComments = paste.allowComments === "true";
@@ -71,6 +73,10 @@ export default async function handler(req, res) {
       ttl: paste.ttl || "24h",
       burnAfterReading: paste.burnAfterReading === "true",
       createdAt: paste.createdAt,
+      blobUrl: paste.blobUrl || "",
+      fileName: paste.fileName || "",
+      fileSize: paste.fileSize ? parseInt(paste.fileSize, 10) : 0,
+      fileType: paste.fileType || "",
     });
   } catch (error) {
     console.error("Content GET Error:", error);

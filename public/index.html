@@ -97,6 +97,20 @@
             </div>
 
             <div class="action-bar-right">
+              <!-- File attachment -->
+              <div class="file-attach-row">
+                <input type="file" id="fileInput" style="display:none;" onchange="onFileSelected()">
+                <label for="fileInput" class="file-attach-btn" id="fileAttachBtn" title="Attach a file (max 4 MB)">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+                  <span id="fileAttachLabel">Attach</span>
+                </label>
+                <div class="file-chip" id="fileChip" style="display:none;">
+                  <span class="file-chip-name" id="fileChipName"></span>
+                  <span class="file-chip-size" id="fileChipSize"></span>
+                  <button class="file-chip-remove" onclick="removeFile(event)" title="Remove">×</button>
+                </div>
+              </div>
+
               <!-- TTL selector -->
               <select id="ttlSelect" class="ttl-select" title="Expiration time">
                 <option value="1h">1 hour</option>
@@ -192,6 +206,32 @@
           <textarea id="editor" placeholder="Start typing..."></textarea>
         </div>
 
+        <div class="panel file-section" id="editorFileSection" style="display:none;">
+          <div class="file-icon-box">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+          </div>
+          <div class="file-meta">
+            <span class="file-meta-name" id="editorFileName"></span>
+            <span class="file-meta-sub" id="editorFileSize"></span>
+          </div>
+          <input type="file" id="editorFileInput" style="display:none;" onchange="onEditorFileSelected()">
+          <label for="editorFileInput" class="file-attach-btn" title="Replace file">Replace</label>
+          <button class="file-chip-remove" onclick="deleteEditorFile()" title="Remove file" style="font-size:1.1rem; padding: 4px 6px;">×</button>
+        </div>
+
+        <div class="panel" id="editorFileAttachSection" style="display:none; padding: 12px 18px;">
+          <div class="file-attach-row">
+            <input type="file" id="editorFileInput2" style="display:none;" onchange="onEditorFileSelected()">
+            <label for="editorFileInput2" class="file-attach-btn" id="editorFileAttachBtn">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+              Attach a file
+            </label>
+            <span class="file-upload-progress" id="editorUploadProgress" style="display:none;">
+              <span class="spinner"></span> Uploading...
+            </span>
+          </div>
+        </div>
+
         <div class="comments-section panel" id="editorCommentsSection" style="display:none;">
           <div class="comments-header">
             <h3>Comments</h3>
@@ -209,6 +249,84 @@
 
     <script>
       let pasteId = null, adminToken = null, saveTimer = null, pinOpen = false;
+      let pendingFile = null; // File selected before paste creation
+
+      const MAX_FILE_SIZE = 4 * 1024 * 1024;
+
+      function formatBytes(bytes) {
+        if (bytes < 1024) return bytes + ' B';
+        if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+        return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+      }
+
+      function onFileSelected() {
+        const file = document.getElementById('fileInput').files[0];
+        if (!file) return;
+        if (file.size > MAX_FILE_SIZE) { toast('File too large (max 4 MB)'); document.getElementById('fileInput').value = ''; return; }
+        pendingFile = file;
+        document.getElementById('fileChipName').textContent = file.name;
+        document.getElementById('fileChipSize').textContent = formatBytes(file.size);
+        document.getElementById('fileChip').style.display = 'inline-flex';
+        document.getElementById('fileAttachBtn').classList.add('has-file');
+        document.getElementById('fileAttachLabel').textContent = '1 file';
+      }
+
+      function removeFile(e) {
+        if (e) e.preventDefault();
+        pendingFile = null;
+        document.getElementById('fileInput').value = '';
+        document.getElementById('fileChip').style.display = 'none';
+        document.getElementById('fileAttachBtn').classList.remove('has-file');
+        document.getElementById('fileAttachLabel').textContent = 'Attach';
+      }
+
+      async function uploadFile(pid, aToken, file) {
+        const params = new URLSearchParams({
+          pasteId: pid, adminToken: aToken,
+          fileName: file.name, fileType: file.type || 'application/octet-stream',
+          fileSize: file.size,
+        });
+        const r = await fetch(`/api/upload?${params}`, {
+          method: 'PUT', body: file,
+          headers: { 'Content-Type': file.type || 'application/octet-stream' },
+        });
+        return r.ok ? await r.json() : null;
+      }
+
+      async function deleteEditorFile() {
+        if (!pasteId || !adminToken) return;
+        const params = new URLSearchParams({ pasteId, adminToken });
+        const r = await fetch(`/api/upload?${params}`, { method: 'DELETE' });
+        if (r.ok) {
+          document.getElementById('editorFileSection').style.display = 'none';
+          document.getElementById('editorFileAttachSection').style.display = '';
+          toast('File removed');
+        }
+      }
+
+      async function onEditorFileSelected() {
+        const input = document.getElementById('editorFileInput').files[0]
+          || document.getElementById('editorFileInput2').files[0];
+        if (!input) return;
+        if (input.size > MAX_FILE_SIZE) { toast('File too large (max 4 MB)'); return; }
+        if (!pasteId || !adminToken) return;
+        document.getElementById('editorUploadProgress').style.display = 'inline-flex';
+        const result = await uploadFile(pasteId, adminToken, input);
+        document.getElementById('editorUploadProgress').style.display = 'none';
+        if (result) {
+          showEditorFile(result.fileName, result.fileSize);
+          toast('File attached');
+        } else {
+          toast('Upload failed');
+        }
+      }
+
+      function showEditorFile(name, size) {
+        document.getElementById('editorFileName').textContent = name;
+        document.getElementById('editorFileSize').textContent = formatBytes(size);
+        document.getElementById('editorFileSection').style.display = '';
+        document.getElementById('editorFileAttachSection').style.display = 'none';
+      }
 
       // ── Toast ──
       let tt;
@@ -301,13 +419,18 @@
           if (!r.ok) { toast((await r.json()).message || "Error"); btn.classList.remove("loading"); btn.disabled = false; return; }
           const d = await r.json();
           pasteId = d.pasteId; adminToken = d.adminToken;
+
+          // Upload file if one was selected
+          if (pendingFile) {
+            await uploadFile(d.pasteId, d.adminToken, pendingFile);
+          }
+
           const o = location.origin;
           document.getElementById("shareUrl").textContent = `${o}/view?id=${d.pasteId}`;
           document.getElementById("adminUrl").textContent = `${o}/?paste=${d.pasteId}&token=${d.adminToken}`;
           document.getElementById("composeSection").style.display = "none";
           document.getElementById("resultPanel").style.display = "";
 
-          // Show burn notice if applicable
           if (d.burnAfterReading) {
             document.getElementById("burnNotice").style.display = "flex";
           }
@@ -327,6 +450,7 @@
         pinOpen = false;
         document.getElementById("pinField").classList.remove("open");
         document.getElementById("pinBtn").classList.remove("active");
+        removeFile();
         updateCount(); pasteId = null; adminToken = null;
         document.getElementById("initialContent").focus();
       }
@@ -351,11 +475,17 @@
       async function loadContent() {
         try {
           const r = await fetch(`/api/content?id=${pasteId}&token=${adminToken}`);
-          if (r.ok) { 
-            const d = await r.json(); 
-            document.getElementById("editor").value = d.content || ""; 
-            updateEditorCount(); 
+          if (r.ok) {
+            const d = await r.json();
+            document.getElementById("editor").value = d.content || "";
+            updateEditorCount();
             updateEditorUI(d);
+            // Show file attachment section (always visible in editor)
+            if (d.blobUrl) {
+              showEditorFile(d.fileName, d.fileSize);
+            } else {
+              document.getElementById('editorFileAttachSection').style.display = '';
+            }
             if (!editorPoll) editorPoll = setInterval(pollEditorContent, editorPollMs);
           }
         } catch(e) { console.error(e); }

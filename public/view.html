@@ -167,6 +167,24 @@
                 <div id="markdownContent"></div>
             </div>
 
+            <div class="panel file-section" id="fileSection" style="display:none;">
+              <div class="file-icon-box">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+              </div>
+              <div class="file-meta">
+                <span class="file-meta-name" id="viewFileName"></span>
+                <span class="file-meta-sub" id="viewFileSub"></span>
+              </div>
+              <a class="file-download-btn" id="fileDownloadBtn" download>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                Download
+              </a>
+            </div>
+
+            <div class="panel file-image-preview" id="fileImagePreview" style="display:none;">
+              <img id="filePreviewImg" src="" alt="">
+            </div>
+
             <div class="comments-section panel" id="commentsSection" style="display:none; margin-top:20px;">
               <div class="comments-header">
                 <h3>Comments</h3>
@@ -369,6 +387,12 @@
 
         function updateCount() { document.getElementById('viewerCount').textContent = (rawContent || '').length.toLocaleString()+' chars'; }
 
+        function formatBytes(bytes) {
+            if (bytes < 1024) return bytes + ' B';
+            if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+            return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+        }
+
         function updateViewerUI(d) {
             const vc = Math.max(0, d.viewerCount - 1);
             if (vc > 0) {
@@ -380,6 +404,24 @@
             if (d.allowComments) {
                 document.getElementById('commentsSection').style.display = 'flex';
                 renderComments(d.comments, 'commentsList');
+            }
+            if (d.blobUrl) {
+                document.getElementById('viewFileName').textContent = d.fileName;
+                document.getElementById('viewFileSub').textContent = formatBytes(d.fileSize) + (d.fileType ? ' · ' + d.fileType : '');
+                const dlBtn = document.getElementById('fileDownloadBtn');
+                dlBtn.href = d.blobUrl;
+                dlBtn.download = d.fileName;
+                document.getElementById('fileSection').style.display = '';
+
+                if (d.fileType && d.fileType.startsWith('image/') && d.fileType !== 'image/svg+xml') {
+                    const img = document.getElementById('filePreviewImg');
+                    img.src = d.blobUrl;
+                    img.alt = d.fileName;
+                    document.getElementById('fileImagePreview').style.display = '';
+                }
+            } else {
+                document.getElementById('fileSection').style.display = 'none';
+                document.getElementById('fileImagePreview').style.display = 'none';
             }
         }
 

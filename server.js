@@ -6,6 +6,7 @@ const crypto = require("crypto");
 
 // ==================== IN-MEMORY STORAGE ====================
 const store = {};
+const blobStore = {}; // pasteId -> { data: Buffer, fileName, fileType }
 
 // TTL map (milliseconds)
 const TTL_MAP = {
@@ -268,6 +269,7 @@ function handleContent(req, res) {
   // Burn after reading: first read destroys the paste for everyone
   if (paste.burnAfterReading === "true") {
     kv.hset(`paste:${id}`, { burned: "true" });
+    if (blobStore[id]) delete blobStore[id];
   }
 
   const allowComments = paste.allowComments === "true";
@@ -291,6 +293,10 @@ function handleContent(req, res) {
     ttl: paste.ttl || "24h",
     burnAfterReading: paste.burnAfterReading === "true",
     createdAt: paste.createdAt,
+    blobUrl: paste.blobUrl || "",
+    fileName: paste.fileName || "",
+    fileSize: paste.fileSize ? parseInt(paste.fileSize, 10) : 0,
+    fileType: paste.fileType || "",
   });
 }
 
@@ -372,6 +378,99 @@ async function handleComment(req, res) {
   sendJson(res, 200, { message: "Comment added" });
 }
 
+const ALLOWED_UPLOAD_TYPES = new Set([
+  "text/plain", "text/html", "text/css", "text/javascript", "text/csv",
+  "text/markdown", "text/xml",
+  "application/json", "application/xml", "application/pdf",
+  "application/zip", "application/x-zip-compressed", "application/x-tar",
+  "application/gzip", "application/x-gzip",
+  "image/jpeg", "image/png", "image/gif", "image/webp", "image/svg+xml",
+  "image/bmp", "image/tiff",
+  "audio/mpeg", "audio/wav", "audio/ogg", "audio/flac",
+  "video/mp4", "video/webm", "video/ogg",
+]);
+
+const MAX_UPLOAD_SIZE = 4 * 1024 * 1024;
+
+async function handleUpload(req, res) {
+  const parsed = url.parse(req.url, true);
+  const { pasteId, adminToken, fileName, fileType, fileSize } = parsed.query;
+
+  if (!pasteId || typeof pasteId !== "string" || pasteId.length > 20)
+    return sendJson(res, 400, { message: "Invalid paste ID" });
+  if (!/^[a-zA-Z0-9]+$/.test(pasteId))
+    return sendJson(res, 400, { message: "Invalid paste ID format" });
+  if (!adminToken)
+    return sendJson(res, 400, { message: "Missing admin token" });
+
+  const paste = kv.hgetall(`paste:${pasteId}`);
+  if (!paste || !paste.adminToken)
+    return sendJson(res, 404, { message: "Paste not found" });
+  if (adminToken !== paste.adminToken)
+    return sendJson(res, 401, { message: "Unauthorized" });
+  if (paste.burned === "true")
+    return sendJson(res, 410, { message: "This paste has been burned" });
+
+  if (req.method === "DELETE") {
+    delete blobStore[pasteId];
+    kv.hset(`paste:${pasteId}`, { blobUrl: "", fileName: "", fileSize: "", fileType: "" });
+    return sendJson(res, 200, { message: "File removed" });
+  }
+
+  if (req.method !== "PUT") return sendJson(res, 405, { message: "Method Not Allowed" });
+
+  if (!fileName || typeof fileName !== "string" || fileName.length > 255)
+    return sendJson(res, 400, { message: "Invalid file name" });
+  if (!fileType || !ALLOWED_UPLOAD_TYPES.has(fileType))
+    return sendJson(res, 400, { message: "File type not allowed" });
+  const size = parseInt(fileSize, 10);
+  if (isNaN(size) || size <= 0 || size > MAX_UPLOAD_SIZE)
+    return sendJson(res, 400, { message: "File too large (max 4 MB)" });
+
+  const safeFileName = fileName.replace(/[^a-zA-Z0-9._\-()[\] ]/g, "_").slice(0, 255);
+
+  const chunks = [];
+  let received = 0;
+  for await (const chunk of req) {
+    received += chunk.length;
+    if (received > MAX_UPLOAD_SIZE) return sendJson(res, 400, { message: "File too large (max 4 MB)" });
+    chunks.push(chunk);
+  }
+  const data = Buffer.concat(chunks);
+
+  blobStore[pasteId] = { data, fileName: safeFileName, fileType };
+  kv.hset(`paste:${pasteId}`, {
+    blobUrl: `/api/file?id=${pasteId}`,
+    fileName: safeFileName,
+    fileSize: String(data.length),
+    fileType: fileType,
+  });
+
+  sendJson(res, 200, {
+    blobUrl: `/api/file?id=${pasteId}`,
+    fileName: safeFileName,
+    fileSize: data.length,
+    fileType: fileType,
+  });
+}
+
+function handleFile(req, res) {
+  if (req.method !== "GET") return sendJson(res, 405, { message: "Method Not Allowed" });
+  const parsed = url.parse(req.url, true);
+  const { id } = parsed.query;
+  if (!id || !blobStore[id]) {
+    res.writeHead(404, { "Content-Type": "text/plain" });
+    return res.end("Not Found");
+  }
+  const { data, fileType, fileName } = blobStore[id];
+  res.writeHead(200, {
+    "Content-Type": fileType,
+    "Content-Disposition": `attachment; filename="${fileName}"`,
+    "Content-Length": data.length,
+  });
+  res.end(data);
+}
+
 async function handleDelete(req, res) {
   if (req.method !== "POST")
     return sendJson(res, 405, { message: "Method Not Allowed" });
@@ -390,6 +489,7 @@ async function handleDelete(req, res) {
   if (adminToken !== storedToken)
     return sendJson(res, 401, { message: "Unauthorized" });
 
+  if (blobStore[pasteId]) delete blobStore[pasteId];
   kv.del(`paste:${pasteId}`);
   sendJson(res, 200, { message: "Paste deleted" });
 }
@@ -406,7 +506,7 @@ const server = http.createServer(async (req, res) => {
   if (req.method === "OPTIONS") {
     res.writeHead(204, {
       "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+      "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
       "Access-Control-Allow-Headers": "Content-Type",
     });
     return res.end();
@@ -420,6 +520,8 @@ const server = http.createServer(async (req, res) => {
     if (pathname === "/api/update") return await handleUpdate(req, res);
     if (pathname === "/api/comment") return await handleComment(req, res);
     if (pathname === "/api/delete") return await handleDelete(req, res);
+    if (pathname === "/api/upload") return await handleUpload(req, res);
+    if (pathname === "/api/file") return handleFile(req, res);
   } catch (err) {
     console.error("API Error:", err);
     return sendJson(res, 500, { message: "Internal Server Error" });

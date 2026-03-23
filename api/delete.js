@@ -1,4 +1,5 @@
 import { kv } from "@vercel/kv";
+import { del as delBlob } from "@vercel/blob";
 
 function securityHeaders(res) {
   res.setHeader("X-Content-Type-Options", "nosniff");
@@ -26,14 +27,17 @@ export default async function handler(req, res) {
     }
 
     // ── Verify admin token ──
-    const storedToken = await kv.hget(`paste:${pasteId}`, "adminToken");
-    if (!storedToken) {
+    const paste = await kv.hgetall(`paste:${pasteId}`);
+    if (!paste || !paste.adminToken) {
       return res.status(404).json({ message: "Paste not found" });
     }
 
-    if (adminToken !== storedToken) {
+    if (adminToken !== paste.adminToken) {
       return res.status(401).json({ message: "Unauthorized" });
     }
+
+    // ── Delete blob file if attached ──
+    if (paste.blobUrl) await delBlob(paste.blobUrl).catch(() => {});
 
     // ── Delete the entire paste hash ──
     await kv.del(`paste:${pasteId}`);
