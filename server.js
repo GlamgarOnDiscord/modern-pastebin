@@ -1,97 +1,21 @@
-const http = require("http");
-const fs = require("fs");
-const path = require("path");
-const url = require("url");
-const crypto = require("crypto");
+// Local development server: serves public/ and routes /api/* to the same
+// serverless handlers Vercel runs, through a small req/res shim.
+// Storage and KV fall back to local backends when env vars are absent.
 
-// ==================== IN-MEMORY STORAGE ====================
-const store = {};
-const blobStore = {}; // pasteId -> { data: Buffer, fileName, fileType }
+import http from "http";
+import fs from "fs";
+import path from "path";
+import { fileURLToPath, pathToFileURL } from "url";
+import { storage, isLocalStorage } from "./lib/storage.js";
+import { isLocalKv } from "./lib/db.js";
 
-// TTL map (milliseconds)
-const TTL_MAP = {
-  "1h": 3600000,
-  "6h": 21600000,
-  "24h": 86400000,
-  "7d": 604800000,
-};
-
-// Simulated Redis Hash operations for local dev
-const kv = {
-  hset(key, fields) {
-    if (!store[key]) store[key] = {};
-    Object.assign(store[key], fields);
-  },
-  hget(key, field) {
-    return store[key] ? store[key][field] || null : null;
-  },
-  hgetall(key) {
-    return store[key] || null;
-  },
-  del(key) {
-    delete store[key];
-  },
-  set(key, value, opts) {
-    store[key] = { _value: value };
-    if (opts && opts.ex) {
-      setTimeout(() => delete store[key], opts.ex * 1000);
-    }
-  },
-  get(key) {
-    return store[key] ? store[key]._value : null;
-  },
-  keys(pattern) {
-    const prefix = pattern.replace("*", "");
-    return Object.keys(store).filter((k) => k.startsWith(prefix));
-  },
-  expire(key, seconds) {
-    setTimeout(() => delete store[key], seconds * 1000);
-  },
-};
-
-// ==================== HELPERS ====================
-function generateId(length = 6) {
-  const chars = "ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789";
-  const bytes = crypto.randomBytes(length);
-  return Array.from(bytes, (b) => chars[b % chars.length]).join("");
-}
-
-function generateToken() {
-  return crypto.randomUUID() + "-" + crypto.randomUUID();
-}
-
-// Note: XSS prevention is handled client-side via textContent (DOM API).
-// No server-side sanitization needed — would cause double-encoding.
-
-function parseBody(req) {
-  return new Promise((resolve, reject) => {
-    let body = "";
-    req.on("data", (chunk) => (body += chunk));
-    req.on("end", () => {
-      try {
-        resolve(body ? JSON.parse(body) : {});
-      } catch {
-        resolve({});
-      }
-    });
-    req.on("error", reject);
-  });
-}
-
-function sendJson(res, status, data) {
-  res.writeHead(status, {
-    "Content-Type": "application/json",
-    "Access-Control-Allow-Origin": "*",
-    "X-Content-Type-Options": "nosniff",
-    "X-Frame-Options": "DENY",
-    "X-XSS-Protection": "1; mode=block",
-    "Referrer-Policy": "no-referrer",
-  });
-  res.end(JSON.stringify(data));
-}
+const PORT = Number(process.env.PORT) || 3000;
+const ROOT = path.dirname(fileURLToPath(import.meta.url));
+const PUBLIC_DIR = path.join(ROOT, "public");
+const API_DIR = path.join(ROOT, "api");
 
 const MIME_TYPES = {
-  ".html": "text/html",
+  ".html": "text/html; charset=utf-8",
   ".css": "text/css",
   ".js": "application/javascript",
   ".json": "application/json",
@@ -101,438 +25,59 @@ const MIME_TYPES = {
   ".ico": "image/x-icon",
 };
 
-function serveStatic(res, filePath) {
-  const ext = path.extname(filePath);
-  const mime = MIME_TYPES[ext] || "application/octet-stream";
+const PAGE_ALIASES = { "/": "index.html", "/view": "view.html", "/drive": "drive.html" };
 
+const handlerCache = new Map();
+
+async function loadHandler(apiPath) {
+  if (!/^[a-z]+(\/[a-z]+)?$/.test(apiPath)) return null;
+  const file = path.join(API_DIR, `${apiPath}.js`);
+  if (!fs.existsSync(file)) return null;
+  if (!handlerCache.has(file)) {
+    handlerCache.set(file, import(pathToFileURL(file).href).then((m) => m.default));
+  }
+  return handlerCache.get(file);
+}
+
+function readJsonBody(req) {
+  return new Promise((resolve) => {
+    let body = "";
+    req.on("data", (chunk) => (body += chunk));
+    req.on("end", () => {
+      try { resolve(body ? JSON.parse(body) : {}); } catch { resolve({}); }
+    });
+    req.on("error", () => resolve({}));
+  });
+}
+
+function shimResponse(res) {
+  res.status = (code) => { res.statusCode = code; return res; };
+  res.json = (data) => {
+    res.setHeader("Content-Type", "application/json");
+    res.end(JSON.stringify(data));
+    return res;
+  };
+  res.send = (data) => { res.end(data); return res; };
+  return res;
+}
+
+function serveStatic(res, filePath) {
+  const mime = MIME_TYPES[path.extname(filePath)] || "application/octet-stream";
   fs.readFile(filePath, (err, data) => {
     if (err) {
       res.writeHead(404, { "Content-Type": "text/plain" });
-      res.end("Not Found");
-      return;
+      return res.end("Not Found");
     }
     res.writeHead(200, { "Content-Type": mime });
     res.end(data);
   });
 }
 
-// ==================== API HANDLERS ====================
-async function handleCreate(req, res) {
-  if (req.method !== "POST")
-    return sendJson(res, 405, { message: "Method Not Allowed" });
-
-  const { pin, content, allowComments, ttl, burnAfterReading } = await parseBody(req);
-
-  // Input validation
-  const textContent = typeof content === "string" ? content : "";
-  if (textContent.length > 100000) {
-    return sendJson(res, 400, { message: "Content too large (max 100 KB)" });
-  }
-
-  if (pin !== null && pin !== undefined && pin !== "") {
-    const pinStr = String(pin);
-    if (
-      pinStr.length < 4 ||
-      pinStr.length > 8 ||
-      !/^[a-zA-Z0-9]+$/.test(pinStr)
-    ) {
-      return sendJson(res, 400, {
-        message: "PIN must be 4-8 alphanumeric characters",
-      });
-    }
-  }
-
-  let pasteId;
-  let attempts = 0;
-  do {
-    pasteId = generateId();
-    if (!kv.hget(`paste:${pasteId}`, "createdAt")) break;
-    attempts++;
-  } while (attempts < 5);
-
-  if (attempts >= 5) {
-    return sendJson(res, 500, { message: "Could not generate unique ID" });
-  }
-
-  const adminToken = generateToken();
-  const viewerToken = generateToken();
-  const now = Date.now();
-  const ttlKey = TTL_MAP[ttl] ? ttl : "24h";
-  const ttlMs = TTL_MAP[ttlKey];
-
-  kv.hset(`paste:${pasteId}`, {
-    content: textContent,
-    pin: pin || "",
-    adminToken,
-    viewerToken,
-    createdAt: now,
-    allowComments:
-      allowComments === true || allowComments === "true" ? "true" : "false",
-    comments: "[]",
-    ttl: ttlKey,
-    burnAfterReading:
-      burnAfterReading === true || burnAfterReading === "true"
-        ? "true"
-        : "false",
-    burned: "false",
-  });
-
-  // Set auto-expiry
-  kv.expire(`paste:${pasteId}`, ttlMs / 1000);
-
-  sendJson(res, 200, {
-    pasteId,
-    adminToken,
-    viewerToken,
-    hasPin: !!(pin && pin !== ""),
-    createdAt: now,
-    ttl: ttlKey,
-    burnAfterReading:
-      burnAfterReading === true || burnAfterReading === "true",
-  });
-}
-
-async function handleAuth(req, res) {
-  if (req.method !== "POST")
-    return sendJson(res, 405, { message: "Method Not Allowed" });
-
-  const { pin, pasteId } = await parseBody(req);
-
-  if (!pasteId || typeof pasteId !== "string" || pasteId.length > 20)
-    return sendJson(res, 400, { message: "Invalid paste ID" });
-
-  if (!/^[a-zA-Z0-9]+$/.test(pasteId))
-    return sendJson(res, 400, { message: "Invalid paste ID format" });
-
-  const paste = kv.hgetall(`paste:${pasteId}`);
-  if (!paste || !paste.createdAt)
-    return sendJson(res, 404, { message: "Paste not found" });
-
-  if (paste.burned === "true")
-    return sendJson(res, 410, { message: "This paste has been burned" });
-
-  if (!paste.pin || paste.pin === "") {
-    return sendJson(res, 200, {
-      message: "Success",
-      token: paste.viewerToken,
-      role: "viewer",
-    });
-  }
-
-  // Timing-safe PIN comparison
-  if (pin) {
-    const pinBuf = Buffer.from(String(pin));
-    const storedBuf = Buffer.from(String(paste.pin));
-    if (pinBuf.length === storedBuf.length && crypto.timingSafeEqual(pinBuf, storedBuf)) {
-      return sendJson(res, 200, {
-        message: "Success",
-        token: paste.viewerToken,
-        role: "viewer",
-      });
-    }
-  }
-
-  sendJson(res, 401, { message: "Invalid PIN" });
-}
-
-function handleContent(req, res) {
-  if (req.method !== "GET")
-    return sendJson(res, 405, { message: "Method Not Allowed" });
-
-  const parsed = url.parse(req.url, true);
-  const { id, token } = parsed.query;
-
-  if (!id || typeof id !== "string" || id.length > 20)
-    return sendJson(res, 400, { message: "Invalid paste ID" });
-
-  if (!/^[a-zA-Z0-9]+$/.test(id))
-    return sendJson(res, 400, { message: "Invalid paste ID format" });
-
-  const paste = kv.hgetall(`paste:${id}`);
-  if (!paste || !paste.createdAt)
-    return sendJson(res, 404, { message: "Paste not found" });
-
-  if (paste.burned === "true")
-    return sendJson(res, 410, {
-      message: "This paste has been burned after reading",
-    });
-
-  const isOpenAccess = !paste.pin || paste.pin === "";
-  const isValidToken = token === paste.adminToken || token === paste.viewerToken;
-
-  if (!isOpenAccess && !isValidToken) {
-    return sendJson(res, 401, { message: "Unauthorized" });
-  }
-
-  const viewerCount = 0;
-
-  // Burn after reading: first read destroys the paste for everyone
-  if (paste.burnAfterReading === "true") {
-    kv.hset(`paste:${id}`, { burned: "true" });
-    if (blobStore[id]) delete blobStore[id];
-  }
-
-  const allowComments = paste.allowComments === "true";
-  let comments = [];
-  if (allowComments && paste.comments) {
-    try {
-      comments =
-        typeof paste.comments === "string"
-          ? JSON.parse(paste.comments)
-          : paste.comments;
-    } catch (e) {
-      comments = [];
-    }
-  }
-
-  sendJson(res, 200, {
-    content: paste.content || "",
-    allowComments,
-    comments,
-    viewerCount,
-    ttl: paste.ttl || "24h",
-    burnAfterReading: paste.burnAfterReading === "true",
-    createdAt: paste.createdAt,
-    hasFile: !!(paste.blobUrl),
-    fileName: paste.fileName || "",
-    fileSize: paste.fileSize ? parseInt(paste.fileSize, 10) : 0,
-    fileType: paste.fileType || "",
-  });
-}
-
-async function handleUpdate(req, res) {
-  if (req.method !== "POST")
-    return sendJson(res, 405, { message: "Method Not Allowed" });
-
-  const { content, pasteId, adminToken } = await parseBody(req);
-
-  if (!pasteId || typeof pasteId !== "string" || pasteId.length > 20)
-    return sendJson(res, 400, { message: "Invalid paste ID" });
-
-  const textContent = typeof content === "string" ? content : "";
-  if (textContent.length > 100000) {
-    return sendJson(res, 400, { message: "Content too large (max 100 KB)" });
-  }
-
-  const storedPaste = kv.hgetall(`paste:${pasteId}`);
-  if (!storedPaste || !storedPaste.adminToken)
-    return sendJson(res, 404, { message: "Paste not found" });
-  if (adminToken !== storedPaste.adminToken)
-    return sendJson(res, 401, { message: "Unauthorized" });
-  if (storedPaste.burned === "true")
-    return sendJson(res, 410, { message: "This paste has been burned" });
-
-  kv.hset(`paste:${pasteId}`, { content: textContent });
-  sendJson(res, 200, { message: "Saved successfully" });
-}
-
-async function handleComment(req, res) {
-  if (req.method !== "POST")
-    return sendJson(res, 405, { message: "Method Not Allowed" });
-
-  const { pasteId, token, text } = await parseBody(req);
-
-  if (!pasteId || !token || !text)
-    return sendJson(res, 400, { message: "Missing data" });
-
-  if (typeof text !== "string" || text.trim().length === 0)
-    return sendJson(res, 400, { message: "Comment cannot be empty" });
-
-  if (text.length > 500)
-    return sendJson(res, 400, {
-      message: "Comment too long (max 500 characters)",
-    });
-
-  const paste = kv.hgetall(`paste:${pasteId}`);
-  if (!paste || !paste.createdAt)
-    return sendJson(res, 404, { message: "Paste not found" });
-
-  let author = null;
-  if (token === paste.adminToken) author = "admin";
-  else if (token === paste.viewerToken) author = "viewer";
-  else return sendJson(res, 401, { message: "Unauthorized" });
-
-  if (paste.allowComments !== "true")
-    return sendJson(res, 403, { message: "Comments disabled" });
-
-  let comments = [];
-  try {
-    comments =
-      typeof paste.comments === "string"
-        ? JSON.parse(paste.comments)
-        : paste.comments || [];
-  } catch (e) {
-    comments = [];
-  }
-
-  if (comments.length >= 50)
-    return sendJson(res, 400, { message: "Maximum comments reached (50)" });
-
-  comments.push({
-    author,
-    text: text.trim(),
-    timestamp: Date.now(),
-  });
-
-  kv.hset(`paste:${pasteId}`, { comments: JSON.stringify(comments) });
-  sendJson(res, 200, { message: "Comment added" });
-}
-
-const ALLOWED_UPLOAD_TYPES = new Set([
-  // Generic text
-  "text/plain", "text/csv", "text/markdown", "text/xml", "text/yaml",
-  // Web
-  "text/html", "text/css", "text/javascript", "application/javascript",
-  "text/typescript", "application/typescript",
-  // Systems languages
-  "text/x-rust", "text/x-go", "text/x-c", "text/x-c++src",
-  "text/x-csharp", "text/x-java", "text/x-kotlin", "text/x-swift",
-  "text/x-objectivec", "text/x-zig", "text/x-nim",
-  // Scripting
-  "text/x-python", "text/x-ruby", "text/x-php", "text/x-lua",
-  "text/x-perl", "text/x-r", "text/x-shellscript", "text/x-powershell",
-  "application/dart",
-  // Functional / other
-  "text/x-elixir", "text/x-haskell", "text/x-erlang",
-  "text/x-clojure", "text/x-scala", "text/x-groovy",
-  // Frontend frameworks
-  "text/x-vue", "text/x-svelte",
-  // Data / config
-  "application/json", "application/xml", "application/toml",
-  "application/sql", "application/graphql",
-  "text/x-terraform",
-  // Archives
-  "application/pdf",
-  "application/zip", "application/x-zip-compressed",
-  "application/x-tar", "application/gzip", "application/x-gzip",
-  // Images
-  "image/jpeg", "image/png", "image/gif", "image/webp",
-  "image/svg+xml", "image/bmp", "image/tiff", "image/x-icon",
-  // Audio / video
-  "audio/mpeg", "audio/wav", "audio/ogg", "audio/flac",
-  "video/mp4", "video/webm", "video/ogg",
-]);
-
-const MAX_UPLOAD_SIZE = 4 * 1024 * 1024;
-
-async function handleUpload(req, res) {
-  const parsed = url.parse(req.url, true);
-  const { pasteId, adminToken, fileName, fileType, fileSize } = parsed.query;
-
-  if (!pasteId || typeof pasteId !== "string" || pasteId.length > 20)
-    return sendJson(res, 400, { message: "Invalid paste ID" });
-  if (!/^[a-zA-Z0-9]+$/.test(pasteId))
-    return sendJson(res, 400, { message: "Invalid paste ID format" });
-  if (!adminToken)
-    return sendJson(res, 400, { message: "Missing admin token" });
-
-  const paste = kv.hgetall(`paste:${pasteId}`);
-  if (!paste || !paste.adminToken)
-    return sendJson(res, 404, { message: "Paste not found" });
-  if (adminToken !== paste.adminToken)
-    return sendJson(res, 401, { message: "Unauthorized" });
-  if (paste.burned === "true")
-    return sendJson(res, 410, { message: "This paste has been burned" });
-
-  if (req.method === "DELETE") {
-    delete blobStore[pasteId];
-    kv.hset(`paste:${pasteId}`, { blobUrl: "", fileName: "", fileSize: "", fileType: "" });
-    return sendJson(res, 200, { message: "File removed" });
-  }
-
-  if (req.method !== "PUT") return sendJson(res, 405, { message: "Method Not Allowed" });
-
-  if (!fileName || typeof fileName !== "string" || fileName.length > 255)
-    return sendJson(res, 400, { message: "Invalid file name" });
-  if (!fileType || !ALLOWED_UPLOAD_TYPES.has(fileType))
-    return sendJson(res, 400, { message: "File type not allowed" });
-  const size = parseInt(fileSize, 10);
-  if (isNaN(size) || size <= 0 || size > MAX_UPLOAD_SIZE)
-    return sendJson(res, 400, { message: "File too large (max 4 MB)" });
-
-  const safeFileName = fileName.replace(/[^a-zA-Z0-9._\-()[\] ]/g, "_").slice(0, 255);
-
-  const chunks = [];
-  let received = 0;
-  for await (const chunk of req) {
-    received += chunk.length;
-    if (received > MAX_UPLOAD_SIZE) return sendJson(res, 400, { message: "File too large (max 4 MB)" });
-    chunks.push(chunk);
-  }
-  const data = Buffer.concat(chunks);
-
-  blobStore[pasteId] = { data, fileName: safeFileName, fileType };
-  kv.hset(`paste:${pasteId}`, {
-    blobUrl: `__local__:${pasteId}`,
-    fileName: safeFileName,
-    fileSize: String(data.length),
-    fileType: fileType,
-  });
-
-  sendJson(res, 200, {
-    fileName: safeFileName,
-    fileSize: data.length,
-    fileType: fileType,
-  });
-}
-
-function handleDownload(req, res) {
-  if (req.method !== "GET") return sendJson(res, 405, { message: "Method Not Allowed" });
-  const parsed = url.parse(req.url, true);
-  const { pasteId, token } = parsed.query;
-  if (!pasteId) { res.writeHead(400); return res.end("Missing pasteId"); }
-
-  const paste = kv.hgetall(`paste:${pasteId}`);
-  if (!paste || !paste.createdAt) { res.writeHead(404); return res.end("Not Found"); }
-  if (paste.burned === "true") { res.writeHead(410); return res.end("Burned"); }
-  if (!blobStore[pasteId]) { res.writeHead(404); return res.end("No file"); }
-
-  const isOpenAccess = !paste.pin || paste.pin === "";
-  const isValidToken = token === paste.adminToken || token === paste.viewerToken;
-  if (!isOpenAccess && !isValidToken) { res.writeHead(401); return res.end("Unauthorized"); }
-
-  const { data, fileType, fileName } = blobStore[pasteId];
-  res.writeHead(200, {
-    "Content-Type": fileType,
-    "Content-Disposition": `attachment; filename="${encodeURIComponent(fileName)}"`,
-    "Content-Length": data.length,
-    "Cache-Control": "private, no-store",
-  });
-  res.end(data);
-}
-
-async function handleDelete(req, res) {
-  if (req.method !== "POST")
-    return sendJson(res, 405, { message: "Method Not Allowed" });
-
-  const { pasteId, adminToken } = await parseBody(req);
-
-  if (!pasteId || typeof pasteId !== "string" || pasteId.length > 20)
-    return sendJson(res, 400, { message: "Invalid paste ID" });
-
-  if (!adminToken)
-    return sendJson(res, 400, { message: "Missing admin token" });
-
-  const storedToken = kv.hget(`paste:${pasteId}`, "adminToken");
-  if (!storedToken)
-    return sendJson(res, 404, { message: "Paste not found" });
-  if (adminToken !== storedToken)
-    return sendJson(res, 401, { message: "Unauthorized" });
-
-  if (blobStore[pasteId]) delete blobStore[pasteId];
-  kv.del(`paste:${pasteId}`);
-  sendJson(res, 200, { message: "Paste deleted" });
-}
-
-// ==================== SERVER ====================
-const PORT = 3000;
-const PUBLIC_DIR = path.join(__dirname, "public");
-
 const server = http.createServer(async (req, res) => {
-  const parsed = url.parse(req.url, true);
-  const pathname = parsed.pathname;
+  const url = new URL(req.url, `http://localhost:${PORT}`);
+  const pathname = url.pathname;
+  const query = Object.fromEntries(url.searchParams);
 
-  // CORS preflight
   if (req.method === "OPTIONS") {
     res.writeHead(204, {
       "Access-Control-Allow-Origin": "*",
@@ -542,40 +87,40 @@ const server = http.createServer(async (req, res) => {
     return res.end();
   }
 
-  // API Routes
-  try {
-    if (pathname === "/api/create") return await handleCreate(req, res);
-    if (pathname === "/api/auth") return await handleAuth(req, res);
-    if (pathname === "/api/content") return handleContent(req, res);
-    if (pathname === "/api/update") return await handleUpdate(req, res);
-    if (pathname === "/api/comment") return await handleComment(req, res);
-    if (pathname === "/api/delete") return await handleDelete(req, res);
-    if (pathname === "/api/upload") return await handleUpload(req, res);
-    if (pathname === "/api/download") return handleDownload(req, res);
-  } catch (err) {
-    console.error("API Error:", err);
-    return sendJson(res, 500, { message: "Internal Server Error" });
+  if (pathname === "/__blob__/put" && isLocalStorage) {
+    return storage.handleLocalPut(req, res, query);
   }
 
-  // Static file serving
-  if (pathname === "/view") {
-    return serveStatic(res, path.join(PUBLIC_DIR, "view.html"));
+  if (pathname.startsWith("/api/")) {
+    try {
+      const handler = await loadHandler(pathname.slice(5));
+      if (!handler) {
+        res.writeHead(404, { "Content-Type": "application/json" });
+        return res.end(JSON.stringify({ message: "Not Found" }));
+      }
+      req.query = query;
+      req.body = (req.headers["content-type"] || "").includes("application/json") ? await readJsonBody(req) : {};
+      return await handler(req, shimResponse(res));
+    } catch (err) {
+      console.error("API Error:", err);
+      if (!res.headersSent) {
+        res.writeHead(500, { "Content-Type": "application/json" });
+        return res.end(JSON.stringify({ message: "Internal Server Error" }));
+      }
+      return res.end();
+    }
   }
 
-  let filePath = path.join(
-    PUBLIC_DIR,
-    pathname === "/" ? "index.html" : pathname
-  );
-
-  // Security: prevent directory traversal
+  const relative = PAGE_ALIASES[pathname] || pathname;
+  const filePath = path.join(PUBLIC_DIR, relative);
   if (!filePath.startsWith(PUBLIC_DIR)) {
     res.writeHead(403);
     return res.end("Forbidden");
   }
-
   serveStatic(res, filePath);
 });
 
 server.listen(PORT, () => {
-  console.log(`\n  ✦ Scribble is running at http://localhost:${PORT}\n`);
+  console.log(`\n  Scribble is running at http://localhost:${PORT}`);
+  console.log(`  KV: ${isLocalKv ? "in-memory" : "Vercel KV"}  Blob: ${isLocalStorage ? ".local-blob/" : "Vercel Blob"}\n`);
 });

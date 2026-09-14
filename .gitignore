@@ -31,3 +31,8 @@ pnpm-debug.log*
 # Coverage
 coverage/
 .nyc_output/
+.local-blob/
+.vercel
+
+.env*.local
+.env*

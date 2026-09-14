@@ -1,12 +1,9 @@
-import { kv } from "@vercel/kv";
-import { del } from "@vercel/blob";
-
-function securityHeaders(res) {
-  res.setHeader("X-Content-Type-Options", "nosniff");
-  res.setHeader("X-Frame-Options", "DENY");
-  res.setHeader("X-XSS-Protection", "1; mode=block");
-  res.setHeader("Referrer-Policy", "no-referrer");
-}
+import { kv } from "../lib/db.js";
+import { securityHeaders } from "../lib/http.js";
+import { storage } from "../lib/storage.js";
+import { loadFiles, filesKey, legacyFile } from "../lib/owner.js";
+import { publicListing } from "../lib/tree.js";
+import { QUOTAS } from "../lib/limits.js";
 
 export default async function handler(req, res) {
   securityHeaders(res);
@@ -48,11 +45,21 @@ export default async function handler(req, res) {
     }
 
     const viewerCount = 0;
+    const fileState = await loadFiles("paste", id);
+    const listing = publicListing(fileState);
+    const legacy = legacyFile(paste);
+    if (legacy) {
+      listing.files.unshift(legacy);
+      listing.totalSize += legacy.size;
+    }
 
     // ── Burn after reading: first read destroys the paste for everyone ──
     if (paste.burnAfterReading === "true") {
       await kv.hset(`paste:${id}`, { burned: "true" });
-      if (paste.blobUrl) await del(paste.blobUrl).catch(() => {});
+      await kv.del(filesKey("paste", id));
+      const pathnames = Object.values(fileState.files).map((f) => f.pathname);
+      if (paste.blobUrl) pathnames.push(paste.blobUrl);
+      storage.remove(pathnames.filter(Boolean)).catch(() => {});
     }
 
     const allowComments = paste.allowComments === "true";
@@ -73,10 +80,10 @@ export default async function handler(req, res) {
       ttl: paste.ttl || "24h",
       burnAfterReading: paste.burnAfterReading === "true",
       createdAt: paste.createdAt,
-      hasFile: !!(paste.blobUrl),
-      fileName: paste.fileName || "",
-      fileSize: paste.fileSize ? parseInt(paste.fileSize, 10) : 0,
-      fileType: paste.fileType || "",
+      role: token === paste.adminToken ? "admin" : "viewer",
+      files: listing.files,
+      totalSize: listing.totalSize,
+      quota: QUOTAS.paste,
     });
   } catch (error) {
     console.error("Content GET Error:", error);

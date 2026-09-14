@@ -1,12 +1,7 @@
-import { kv } from "@vercel/kv";
-import { del as delBlob } from "@vercel/blob";
-
-function securityHeaders(res) {
-  res.setHeader("X-Content-Type-Options", "nosniff");
-  res.setHeader("X-Frame-Options", "DENY");
-  res.setHeader("X-XSS-Protection", "1; mode=block");
-  res.setHeader("Referrer-Policy", "no-referrer");
-}
+import { kv } from "../lib/db.js";
+import { securityHeaders } from "../lib/http.js";
+import { storage } from "../lib/storage.js";
+import { loadFiles, filesKey } from "../lib/owner.js";
 
 export default async function handler(req, res) {
   securityHeaders(res);
@@ -36,8 +31,12 @@ export default async function handler(req, res) {
       return res.status(401).json({ message: "Unauthorized" });
     }
 
-    // ── Delete blob file if attached ──
-    if (paste.blobUrl) await delBlob(paste.blobUrl).catch(() => {});
+    // ── Delete all attached blobs ──
+    const fileState = await loadFiles("paste", pasteId);
+    const pathnames = Object.values(fileState.files).map((f) => f.pathname);
+    if (paste.blobUrl) pathnames.push(paste.blobUrl);
+    await storage.remove(pathnames.filter(Boolean)).catch(() => {});
+    await kv.del(filesKey("paste", pasteId));
 
     // ── Delete the entire paste hash ──
     await kv.del(`paste:${pasteId}`);

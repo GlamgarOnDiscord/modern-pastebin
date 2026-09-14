@@ -1,16 +1,14 @@
 {
   "name": "modern-pastebin",
-  "version": "1.0.0",
-  "description": "",
+  "version": "2.1.0",
+  "description": "Scribble: a premium pastebin with multi-file attachments and drives",
   "main": "server.js",
+  "type": "module",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "node --test \"test/**/*.test.js\""
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "type": "commonjs",
+  "license": "MIT",
   "dependencies": {
     "@vercel/blob": "^2.3.1",
     "@vercel/kv": "^3.0.0"

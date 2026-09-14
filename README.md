@@ -26,7 +26,24 @@
 
 ---
 
-## 🆕 What's New — v2.0
+## 🆕 What's New — v2.1
+
+<table>
+<tr><td>📁</td><td><b>Drive</b></td><td>Standalone shareable file spaces at <code>/drive</code>: folders, PIN, TTL, burn, optional viewer drop box</td></tr>
+<tr><td>📎</td><td><b>Multi-file attachments</b></td><td>Drop several files (or whole folders) on a paste, per-file progress, previews, zip download</td></tr>
+<tr><td>🚀</td><td><b>100 MB uploads</b></td><td>Browser uploads straight to private Vercel Blob storage, streamed back through the API</td></tr>
+<tr><td>🧹</td><td><b>Orphan cleanup</b></td><td>Daily cron removes blobs whose paste/drive expired</td></tr>
+</table>
+
+### Environment
+
+| Variable | Purpose |
+|---|---|
+| `KV_REST_API_URL`, `KV_REST_API_TOKEN` | Redis (Vercel KV / Upstash). Absent locally: in-memory store |
+| `BLOB_READ_WRITE_TOKEN` | Vercel Blob. Absent locally: files stored under `.local-blob/` |
+| `CRON_SECRET` | Protects `/api/cron/cleanup` (set automatically by Vercel Cron) |
+
+## What's New — v2.0
 
 <table>
 <tr><td>🔥</td><td><b>Burn After Reading</b></td><td>Self-destructing pastes that vanish after the first view</td></tr>
@@ -58,14 +75,21 @@ modern-pastebin/
 │   ├── index.html          ← Compose / Editor view
 │   ├── view.html           ← Rich Viewer (Raw + Syntax + Markdown)
 │   └── style.css           ← Premium Design tokens
+│   ├── drive.html          ← Drive: create / share / explorer
+│   └── files.js            ← Shared file manager (uploads, tree, previews, zip)
 ├── api/                    ← Serverless Backend
 │   ├── create.js           ← POST new pastes (TTL, burn, PIN)
-│   ├── content.js          ← GET paste content (single HGETALL)
+│   ├── content.js          ← GET paste content + attachments
 │   ├── update.js           ← POST paste updates
-│   ├── auth.js             ← PIN validation (timing-safe)
+│   ├── auth.js             ← PIN validation (pastes and drives)
 │   ├── comment.js          ← POST comments (rate-limited)
-│   └── delete.js           ← POST admin delete
-└── server.js               ← Local Node.js development server
+│   ├── delete.js           ← POST admin delete
+│   ├── drive.js            ← POST / GET / DELETE drives
+│   ├── files/              ← token (upload grant), commit, op (rename/move/delete/mkdir), get (stream)
+│   └── cron/cleanup.js     ← Orphaned blob cleanup
+├── lib/                    ← db (KV or memory), storage (Blob or disk), tree (pure ops), owner, limits
+├── test/                   ← node --test unit tests
+└── server.js               ← Local dev server routing /api/* to the same handlers
 ```
 
 ### Data Flow

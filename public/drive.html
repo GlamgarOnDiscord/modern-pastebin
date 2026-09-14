@@ -1,0 +1,410 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Scribble Drive - Shareable file spaces</title>
+    <meta name="description" content="Create a temporary shareable drive: upload files and folders, protect with a PIN, share a link." />
+    <meta property="og:title" content="Scribble Drive" />
+    <meta property="og:description" content="Temporary shareable drives with folders, PIN protection and expiry." />
+    <meta property="og:image" content="https://modern-pastebin.vercel.app/og-image.png" />
+    <meta property="og:type" content="website" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet" href="style.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>%E2%9C%A6</text></svg>">
+  </head>
+  <body>
+
+    <div id="toast" class="toast">
+      <svg id="toastIconOk" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+      <svg id="toastIconErr" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="display:none;"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      <span id="toastText"></span>
+    </div>
+
+    <!-- PIN -->
+    <div id="authOverlay" class="auth-overlay" style="display:none;">
+      <div class="auth-box">
+        <div class="auth-icon">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+        </div>
+        <h2>Secured Drive</h2>
+        <p>Enter the PIN to continue.</p>
+        <form id="authForm">
+          <input type="password" id="authPin" class="auth-input" placeholder="&#8226;&#8226;&#8226;&#8226;" maxlength="8" required autocomplete="off">
+          <div id="authError" class="auth-error"></div>
+          <button type="submit" class="cta-btn" id="unlockBtn" style="width:100%;">
+            <span class="btn-label">Unlock</span>
+            <span class="spinner"></span>
+          </button>
+        </form>
+      </div>
+    </div>
+
+    <!-- Error / burned -->
+    <div id="errorView" class="view" style="display:none;">
+      <div class="page" style="justify-content:center;min-height:80dvh;">
+        <nav><a href="/" class="brand"><span class="brand-mark" aria-hidden="true">&#10022;</span> Scribble</a></nav>
+        <div class="error-state panel">
+          <div id="errorIcon" style="font-size:2rem;"></div>
+          <h2 id="errorTitle">Drive not found</h2>
+          <p id="errorText">This drive doesn't exist or has expired.</p>
+          <a href="/drive" class="ghost-btn" style="margin-top:8px;text-decoration:none;">Create a new drive</a>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========== CREATE ========== -->
+    <div id="createView" class="view" style="display:none;">
+      <div class="page">
+        <nav>
+          <a href="/" class="brand"><span class="brand-mark" aria-hidden="true">&#10022;</span> Scribble</a>
+          <div class="nav-right">
+            <span class="chip">Folders</span>
+            <span class="chip">100 MB / file</span>
+            <span class="chip">PIN Lock</span>
+            <a href="/" class="ghost-btn" style="padding:6px 12px;font-size:0.75rem;margin-left:8px;text-decoration:none;">New paste</a>
+          </div>
+        </nav>
+
+        <div id="composeSection">
+          <div class="section-label">New drive</div>
+          <div class="panel" style="padding:14px;">
+            <input type="text" id="driveName" class="drive-name-input" placeholder="Drive name (optional)" maxlength="80" autofocus>
+          </div>
+
+          <div class="action-bar" style="margin-top:10px;">
+            <div class="action-bar-left">
+              <button type="button" class="pin-btn" onclick="togglePin()" id="pinBtn">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                <span>PIN</span>
+              </button>
+              <label class="comment-toggle" title="Viewers can also upload files (drop box)">
+                <input type="checkbox" id="viewerUploadCheck">
+                <span class="comment-toggle-label">Viewer upload</span>
+              </label>
+              <label class="comment-toggle" title="Destroy after the first viewer opens it">
+                <input type="checkbox" id="burnCheck">
+                <span class="comment-toggle-label">🔥 Burn</span>
+              </label>
+              <div class="pin-field" id="pinField">
+                <input type="text" id="pinInput" placeholder="PIN" maxlength="8" autocomplete="off" />
+              </div>
+            </div>
+            <div class="action-bar-right">
+              <select id="ttlSelect" class="ttl-select" title="Expiration time">
+                <option value="1h">1 hour</option>
+                <option value="6h">6 hours</option>
+                <option value="24h" selected>24 hours</option>
+                <option value="7d">7 days</option>
+              </select>
+              <button id="createBtn" class="cta-btn" onclick="createDrive()">
+                <span class="btn-label">Create drive</span>
+                <span class="spinner"></span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div id="resultPanel" class="result-panel panel" style="display:none;">
+          <div class="result-header">
+            <span class="result-mark" aria-hidden="true">&#10022;</span>
+            <div>
+              <h3>Drive ready</h3>
+              <p>Share the viewer link, keep the admin link for yourself.</p>
+            </div>
+          </div>
+          <div class="link-group">
+            <div class="link-row" id="shareRow" onclick="copyRow('shareUrl','shareRow')">
+              <span class="link-label">Share</span>
+              <span class="badge-sm badge-viewer">viewer</span>
+              <code class="link-url" id="shareUrl"></code>
+              <button class="copy-btn" title="Copy">
+                <svg class="copy-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                <svg class="check-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+              </button>
+            </div>
+            <div class="link-row admin" id="adminRow" onclick="copyRow('adminUrl','adminRow')">
+              <span class="link-label">Manage</span>
+              <span class="badge-sm badge-admin">admin</span>
+              <code class="link-url" id="adminUrl"></code>
+              <button class="copy-btn" title="Copy">
+                <svg class="copy-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                <svg class="check-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+              </button>
+            </div>
+          </div>
+          <div id="burnNotice" class="burn-notice" style="display:none;">
+            <span>🔥</span> This drive will self-destruct after the first viewer opens it.
+          </div>
+          <div class="result-actions">
+            <button class="cta-btn" onclick="goToDrive()" style="flex:1;">Open drive</button>
+            <button class="ghost-btn" onclick="resetCreate()">New drive</button>
+          </div>
+        </div>
+
+        <footer class="foot"><p>Files expire with the drive<span class="foot-sep"></span><a href="/">Scribble</a></p></footer>
+      </div>
+    </div>
+
+    <!-- ========== EXPLORER ========== -->
+    <div id="driveView" class="view" style="display:none;">
+      <div class="page">
+        <nav>
+          <div style="display:flex;align-items:center;gap:10px;">
+            <a href="/" class="brand"><span class="brand-mark" aria-hidden="true">&#10022;</span> Scribble</a>
+            <span class="id-badge" id="driveIdBadge"></span>
+            <span class="badge-sm" id="roleBadge"></span>
+          </div>
+          <div class="status saved" id="statusBadge">
+            <div class="status-dot"></div>
+            <span id="statusText">Live</span>
+          </div>
+        </nav>
+
+        <div class="drive-head">
+          <h2 id="driveTitle">Drive</h2>
+          <span class="char-label" id="driveTtl"></span>
+          <button class="tool-btn" onclick="copyShareLink()" id="shareBtn">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+            <span>Share</span>
+          </button>
+          <button class="tool-btn tool-btn-danger" onclick="deleteDrive()" id="deleteBtn" style="display:none;" title="Delete this drive permanently">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+            <span>Delete</span>
+          </button>
+        </div>
+
+        <div class="panel drive-panel">
+          <div id="driveFiles"></div>
+        </div>
+
+        <footer class="foot"><p id="driveFoot">Expires based on TTL<span class="foot-sep"></span><a href="/drive">Create your own drive</a></p></footer>
+      </div>
+    </div>
+
+    <script src="files.js"></script>
+    <script>
+      let driveId = null, token = null, role = null, fm = null, pinOpen = false, poll = null;
+
+      let tt;
+      function toast(m, type) {
+        const t = document.getElementById("toast");
+        const isErr = type === "error";
+        document.getElementById("toastText").textContent = m;
+        document.getElementById("toastIconOk").style.display = isErr ? "none" : "";
+        document.getElementById("toastIconErr").style.display = isErr ? "" : "none";
+        t.classList.toggle("error", isErr);
+        t.classList.add("visible");
+        clearTimeout(tt);
+        tt = setTimeout(() => t.classList.remove("visible"), 2200);
+      }
+
+      function show(viewId) {
+        for (const v of ["createView", "driveView", "errorView"]) document.getElementById(v).style.display = v === viewId ? "" : "none";
+      }
+
+      function showError(title, text, icon) {
+        document.getElementById("errorTitle").textContent = title;
+        document.getElementById("errorText").textContent = text;
+        document.getElementById("errorIcon").textContent = icon || "";
+        document.getElementById("authOverlay").style.display = "none";
+        show("errorView");
+      }
+
+      function togglePin() {
+        pinOpen = !pinOpen;
+        document.getElementById("pinField").classList.toggle("open", pinOpen);
+        document.getElementById("pinBtn").classList.toggle("active", pinOpen);
+        if (pinOpen) document.getElementById("pinInput").focus();
+      }
+
+      // ── Create ──
+      async function createDrive() {
+        const btn = document.getElementById("createBtn");
+        const name = document.getElementById("driveName").value.trim();
+        const pin = document.getElementById("pinInput").value.trim();
+        const burnAfterReading = document.getElementById("burnCheck").checked;
+        const allowViewerUpload = document.getElementById("viewerUploadCheck").checked;
+        const ttl = document.getElementById("ttlSelect").value;
+        if (pin && (pin.length < 4 || pin.length > 8 || !/^[a-zA-Z0-9]+$/.test(pin))) {
+          toast("PIN must be 4-8 alphanumeric chars", "error");
+          return;
+        }
+        btn.classList.add("loading"); btn.disabled = true;
+        try {
+          const r = await fetch("/api/drive", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name, pin: pin || null, ttl, burnAfterReading, allowViewerUpload }),
+          });
+          const d = await r.json();
+          if (!r.ok) { toast(d.message || "Error", "error"); btn.classList.remove("loading"); btn.disabled = false; return; }
+          driveId = d.driveId; token = d.adminToken;
+          const o = location.origin;
+          document.getElementById("shareUrl").textContent = `${o}/drive?id=${d.driveId}`;
+          document.getElementById("adminUrl").textContent = `${o}/drive?id=${d.driveId}&token=${d.adminToken}`;
+          document.getElementById("burnNotice").style.display = d.burnAfterReading ? "flex" : "none";
+          document.getElementById("composeSection").style.display = "none";
+          document.getElementById("resultPanel").style.display = "";
+        } catch (e) { toast("Network error", "error"); }
+        btn.classList.remove("loading"); btn.disabled = false;
+      }
+
+      function resetCreate() {
+        document.getElementById("resultPanel").style.display = "none";
+        document.getElementById("composeSection").style.display = "";
+        document.getElementById("driveName").value = "";
+        document.getElementById("pinInput").value = "";
+        document.getElementById("burnCheck").checked = false;
+        document.getElementById("viewerUploadCheck").checked = false;
+        document.getElementById("ttlSelect").value = "24h";
+        pinOpen = false;
+        document.getElementById("pinField").classList.remove("open");
+        document.getElementById("pinBtn").classList.remove("active");
+        driveId = null; token = null;
+        document.getElementById("driveName").focus();
+      }
+
+      function goToDrive() { location.href = `/drive?id=${driveId}&token=${token}`; }
+
+      function copyRow(codeId, rowId) {
+        navigator.clipboard.writeText(document.getElementById(codeId).textContent).then(() => {
+          const row = document.getElementById(rowId);
+          row.classList.add("copied"); setTimeout(() => row.classList.remove("copied"), 2000);
+          toast("Copied");
+        });
+      }
+
+      function copyShareLink() {
+        navigator.clipboard.writeText(`${location.origin}/drive?id=${driveId}`).then(() => {
+          const b = document.getElementById("shareBtn"), s = b.querySelector("span");
+          b.classList.add("copied"); s.textContent = "Copied!"; toast("Share link copied");
+          setTimeout(() => { b.classList.remove("copied"); s.textContent = "Share"; }, 1500);
+        });
+      }
+
+      // ── Open ──
+      const TTL_LABEL = { "1h": "1 hour", "6h": "6 hours", "24h": "24 hours", "7d": "7 days" };
+
+      async function loadDrive() {
+        try {
+          const r = await fetch(`/api/drive?id=${encodeURIComponent(driveId)}${token ? "&token=" + encodeURIComponent(token) : ""}`);
+          if (r.status === 401) { showAuth(); return; }
+          if (r.status === 410) { showError("Drive burned", "This drive has been destroyed after being opened.", "🔥"); return; }
+          if (!r.ok) { showError("Drive not found", "This drive doesn't exist or has expired."); return; }
+          const d = await r.json();
+          role = d.role;
+          renderDrive(d);
+          if (d.burnAfterReading && role === "viewer") {
+            toast("This drive was burned: download what you need now", "error");
+          } else if (!poll) {
+            poll = setInterval(refresh, document.hidden ? 20000 : 8000);
+          }
+        } catch (e) { showError("Network error", "Could not reach the server."); }
+      }
+
+      async function refresh() {
+        if (fm && fm.isBusy()) return;
+        try {
+          const r = await fetch(`/api/drive?id=${encodeURIComponent(driveId)}${token ? "&token=" + encodeURIComponent(token) : ""}`);
+          if (r.status === 404 || r.status === 410) { clearInterval(poll); showError("Drive gone", "This drive has expired or was deleted."); return; }
+          if (r.ok) fm.setListing(await r.json());
+        } catch (e) { /* transient */ }
+      }
+
+      function renderDrive(d) {
+        document.getElementById("authOverlay").style.display = "none";
+        show("driveView");
+        document.getElementById("driveIdBadge").textContent = driveId;
+        const rb = document.getElementById("roleBadge");
+        rb.textContent = role;
+        rb.className = "badge-sm " + (role === "admin" ? "badge-admin" : "badge-viewer");
+        document.getElementById("driveTitle").textContent = d.name || "Untitled drive";
+        document.title = `${d.name || "Drive"} - Scribble Drive`;
+        document.getElementById("driveTtl").textContent = `expires ${TTL_LABEL[d.ttl] || d.ttl} after creation`;
+        document.getElementById("deleteBtn").style.display = role === "admin" ? "" : "none";
+        const fmRole = role === "admin" ? "admin" : (d.allowViewerUpload ? "viewer-upload" : "viewer");
+        if (!fm) {
+          fm = ScribbleFiles.mount(document.getElementById("driveFiles"), {
+            kind: "drive", id: driveId, token, role: fmRole, mode: "explorer", toast, listing: d, quota: d.quota,
+          });
+        } else {
+          fm.setAuth({ token, role: fmRole });
+          fm.setListing(d);
+        }
+      }
+
+      function showAuth() {
+        show("driveView");
+        document.getElementById("driveView").style.opacity = "0.06";
+        document.getElementById("driveView").style.pointerEvents = "none";
+        document.getElementById("driveView").style.filter = "blur(8px)";
+        document.getElementById("authOverlay").style.display = "";
+        setTimeout(() => document.getElementById("authPin").focus(), 100);
+      }
+
+      document.getElementById("authForm").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const pin = document.getElementById("authPin").value;
+        if (!pin) return;
+        const btn = document.getElementById("unlockBtn");
+        btn.classList.add("loading"); btn.disabled = true;
+        document.getElementById("authError").textContent = "";
+        try {
+          const r = await fetch("/api/auth", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pin, pasteId: driveId, kind: "drive" }) });
+          if (r.status === 410) { showError("Drive burned", "This drive has been destroyed after being opened.", "🔥"); return; }
+          const d = await r.json();
+          if (r.ok && d.token) {
+            token = d.token;
+            const dv = document.getElementById("driveView");
+            dv.style.opacity = ""; dv.style.pointerEvents = ""; dv.style.filter = "";
+            toast("Unlocked");
+            await loadDrive();
+          } else {
+            document.getElementById("authError").textContent = d.message || "Invalid PIN";
+            document.getElementById("authPin").value = ""; document.getElementById("authPin").focus();
+            const box = document.querySelector(".auth-box"); box.style.animation = "none"; box.offsetHeight; box.style.animation = "shake 0.4s ease";
+          }
+        } catch (err) { document.getElementById("authError").textContent = "Server error"; }
+        btn.classList.remove("loading"); btn.disabled = false;
+      });
+
+      async function deleteDrive() {
+        if (!confirm("Permanently delete this drive and all its files? This cannot be undone.")) return;
+        try {
+          const r = await fetch(`/api/drive?id=${encodeURIComponent(driveId)}&token=${encodeURIComponent(token)}`, { method: "DELETE" });
+          if (r.ok) { toast("Drive deleted"); clearInterval(poll); setTimeout(() => location.href = "/drive", 900); }
+          else toast((await r.json()).message || "Delete failed", "error");
+        } catch (e) { toast("Network error", "error"); }
+      }
+
+      window.addEventListener("beforeunload", (e) => {
+        if (fm && fm.isBusy()) { e.preventDefault(); e.returnValue = ""; }
+      });
+
+      document.addEventListener("keydown", (e) => {
+        if ((e.ctrlKey || e.metaKey) && e.key === "Enter" && document.getElementById("createView").style.display !== "none") createDrive();
+      });
+
+      // ── Init ──
+      (async () => {
+        const p = new URLSearchParams(location.search);
+        driveId = p.get("id");
+        token = p.get("token");
+        if (!driveId) { show("createView"); return; }
+        if (!token) {
+          // Open access drives hand out the viewer token without a PIN.
+          try {
+            const ar = await fetch("/api/auth", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pin: "", pasteId: driveId, kind: "drive" }) });
+            if (ar.status === 410) { showError("Drive burned", "This drive has been destroyed after being opened.", "🔥"); return; }
+            if (ar.status === 404) { showError("Drive not found", "This drive doesn't exist or has expired."); return; }
+            if (ar.ok) token = (await ar.json()).token;
+          } catch (e) { /* fall through to loadDrive which handles errors */ }
+        }
+        loadDrive();
+      })();
+    </script>
+  </body>
+</html>
