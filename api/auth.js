@@ -1,12 +1,6 @@
-import { kv } from "@vercel/kv";
+import { kv } from "../lib/db.js";
 import crypto from "crypto";
-
-function securityHeaders(res) {
-  res.setHeader("X-Content-Type-Options", "nosniff");
-  res.setHeader("X-Frame-Options", "DENY");
-  res.setHeader("X-XSS-Protection", "1; mode=block");
-  res.setHeader("Referrer-Policy", "no-referrer");
-}
+import { securityHeaders } from "../lib/http.js";
 
 export default async function handler(req, res) {
   securityHeaders(res);
@@ -16,7 +10,8 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { pin, pasteId } = req.body;
+    const { pin, pasteId, kind } = req.body;
+    const ownerKind = kind === "drive" ? "drive" : "paste";
 
     if (!pasteId || typeof pasteId !== "string" || pasteId.length > 20) {
       return res.status(400).json({ message: "Invalid paste ID" });
@@ -28,7 +23,7 @@ export default async function handler(req, res) {
     }
 
     // ── Single HGETALL instead of 2-4 separate GETs ──
-    const paste = await kv.hgetall(`paste:${pasteId}`);
+    const paste = await kv.hgetall(`${ownerKind}:${pasteId}`);
 
     if (!paste || !paste.createdAt) {
       return res.status(404).json({ message: "Paste not found" });

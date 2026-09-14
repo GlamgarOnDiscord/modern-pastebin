@@ -1,15 +1,8 @@
-import { kv } from "@vercel/kv";
-
-function securityHeaders(res) {
-  res.setHeader("X-Content-Type-Options", "nosniff");
-  res.setHeader("X-Frame-Options", "DENY");
-  res.setHeader("X-XSS-Protection", "1; mode=block");
-  res.setHeader("Referrer-Policy", "no-referrer");
-}
+import { kv } from "../lib/db.js";
+import { securityHeaders } from "../lib/http.js";
 
 // Note: XSS prevention is handled client-side via textContent (DOM API).
 // Server-side sanitization is NOT needed and would cause double-encoding.
-
 
 export default async function handler(req, res) {
   securityHeaders(res);

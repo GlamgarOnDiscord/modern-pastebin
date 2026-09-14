@@ -1,31 +1,7 @@
-import { kv } from "@vercel/kv";
-import crypto from "crypto";
-
-// ── Security helpers ──
-function generateId(length = 6) {
-  const chars = "ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789";
-  const bytes = crypto.getRandomValues(new Uint8Array(length));
-  return Array.from(bytes, (b) => chars[b % chars.length]).join("");
-}
-
-function generateToken() {
-  return crypto.randomUUID() + "-" + crypto.randomUUID();
-}
-
-function securityHeaders(res) {
-  res.setHeader("X-Content-Type-Options", "nosniff");
-  res.setHeader("X-Frame-Options", "DENY");
-  res.setHeader("X-XSS-Protection", "1; mode=block");
-  res.setHeader("Referrer-Policy", "no-referrer");
-}
-
-// ── TTL map (seconds) ──
-const TTL_MAP = {
-  "1h": 3600,
-  "6h": 21600,
-  "24h": 86400,
-  "7d": 604800,
-};
+import { kv } from "../lib/db.js";
+import { securityHeaders } from "../lib/http.js";
+import { generateId, generateToken } from "../lib/ids.js";
+import { TTL_MAP } from "../lib/limits.js";
 
 export default async function handler(req, res) {
   securityHeaders(res);

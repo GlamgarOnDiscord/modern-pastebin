@@ -1,17 +1,12 @@
 {
   "version": 2,
   "rewrites": [
-    {
-      "source": "/api/(.*)",
-      "destination": "/api/$1"
-    },
-    {
-      "source": "/view",
-      "destination": "/view.html"
-    },
-    {
-      "source": "/(.*)",
-      "destination": "/$1"
-    }
+    { "source": "/api/(.*)", "destination": "/api/$1" },
+    { "source": "/view", "destination": "/view.html" },
+    { "source": "/drive", "destination": "/drive.html" },
+    { "source": "/(.*)", "destination": "/$1" }
+  ],
+  "crons": [
+    { "path": "/api/cron/cleanup", "schedule": "0 4 * * *" }
   ]
 }
