@@ -37,10 +37,10 @@
             <div class="auth-icon">
                 <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>
             </div>
-            <h2>Open a Paste</h2>
-            <p>Enter the paste code or URL.</p>
+            <h2>Open a Paste or Drive</h2>
+            <p>Enter a paste or drive code, or paste its URL.</p>
             <form id="viewPasteForm">
-                <input type="text" id="pasteCodeInput" class="auth-input" placeholder="e.g. 29xDg" required autocomplete="off" style="letter-spacing: normal; text-align: center;">
+                <input type="text" id="pasteCodeInput" class="auth-input" placeholder="e.g. 29xDgA or FQebZah6" required autocomplete="off" style="letter-spacing: normal; text-align: center;">
                 <div style="display:flex; gap: 8px; margin-top: 16px;">
                     <button type="button" class="ghost-btn" onclick="closeViewModal()" style="flex:1;">Cancel</button>
                     <button type="submit" class="cta-btn" style="flex:1;">Open</button>
@@ -64,7 +64,7 @@
             </a>
             <button class="ghost-btn" style="padding: 6px 12px; font-size: 0.75rem;" onclick="openViewModal()">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:4px;"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>
-              Open Paste
+              Open
             </button>
           </div>
         </nav>
@@ -275,6 +275,22 @@
         }
       })();
 
+      // Paste IDs are 6 chars, drive IDs are 8; URLs carry the page in their path.
+      function resolveOpenTarget(val) {
+        try {
+          const u = new URL(val);
+          if (u.searchParams.get("paste")) return u.pathname + u.search;
+          const id = u.searchParams.get("id");
+          const token = u.searchParams.get("token");
+          if (id) {
+            const page = u.pathname.startsWith("/drive") ? "/drive" : "/view";
+            return `${page}?id=${encodeURIComponent(id)}${token ? "&token=" + encodeURIComponent(token) : ""}`;
+          }
+        } catch (err) { /* not a URL */ }
+        const code = val.replace(/[^a-zA-Z0-9]/g, "");
+        return (code.length >= 8 ? "/drive?id=" : "/view?id=") + encodeURIComponent(code);
+      }
+
       // ── View Modal ──
       function openViewModal() {
         document.getElementById("viewModalOverlay").style.display = "flex";
@@ -288,9 +304,7 @@
         e.preventDefault();
         const val = document.getElementById("pasteCodeInput").value.trim();
         if (!val) return;
-        let id = val;
-        try { const u = new URL(val); id = u.searchParams.get("id") || val; } catch(err) {}
-        location.href = `/view?id=${id}`;
+        location.href = resolveOpenTarget(val);
       });
 
       // ── Create ──
